@@ -1,6 +1,6 @@
 ---
 name: archify
-description: Create polished, validated architecture, workflow, sequence, data-flow, and lifecycle/state diagrams as explorable standalone HTML with inline SVG, dark/light themes, optional trace motion, and PNG/JPEG/WebP/SVG/WebM export. Accept plain-language requirements or pasted Mermaid flowchart, sequenceDiagram, and stateDiagram input; inspect repository evidence when the diagram must reflect real code. Use when the user asks to visualize system architecture, infrastructure, cloud/security/network topology, technical workflows, API call sequences, request lifecycles, data pipelines, ETL/ELT, data lineage, state machines, or to convert/beautify Mermaid.
+description: Create polished, validated architecture, workflow, sequence, data-flow, lifecycle/state, and entity-relationship diagrams as explorable standalone HTML with inline SVG, dark/light themes, optional trace motion, and PNG/JPEG/WebP/SVG/WebM export. Accept plain-language requirements or pasted Mermaid flowchart, sequenceDiagram, stateDiagram, and erDiagram input; inspect repository evidence when the diagram must reflect real code. Use when the user asks to visualize system architecture, infrastructure, cloud/security/network topology, technical workflows, API call sequences, request lifecycles, data pipelines, ETL/ELT, data lineage, state machines, database schemas, ER/entity-relationship models, or to convert/beautify Mermaid.
 license: MIT
 metadata:
   version: "2.17"
@@ -50,6 +50,8 @@ After the first candidate exists, a harness with true parallel tool calls may ru
 
 Do not read `bin/` implementation, renderer or validator source, tests, or benchmarks before the first candidate; the commands above are sufficient. Inspect implementation only for a diagnostic without actionable evidence or after two focused repairs fail.
 
+Entity-relationship note: a relationship reads `from` -> `to`, and the omitted cardinality defaults to `many` -> `one` with both ends mandatory, which is the ordinary foreign-key shape; set `fromOptional`/`toOptional` for zero-or-more and `identifying: false` for a dashed non-identifying line. Entity boxes are opaque: a route that would pass through an unrelated entity is routed around it, and a route that cannot clear it is an error rather than a drawn crossing. Keep entity columns to the keys and the few attributes the reader needs, and put the full table in cards.
+
 ## Type router
 
 | Type | Use for | Schema | Example |
@@ -59,6 +61,7 @@ Do not read `bin/` implementation, renderer or validator source, tests, or bench
 | `sequence` | API call chains, request lifecycles, async traces, returns | `schemas/sequence.schema.json` | `examples/cache-miss-request.sequence.json` |
 | `dataflow` | Pipelines, ETL/ELT, lineage, governance, consumers | `schemas/dataflow.schema.json` | `examples/product-analytics.dataflow.json` |
 | `lifecycle` | State/status transitions, retries, waiting and terminal states | `schemas/lifecycle.schema.json` | `examples/deployment-release.lifecycle.json` |
+| `erd` | Tables/entities, attributes, primary/foreign/unique keys, cardinality between them | `schemas/erd.schema.json` | `examples/orders.erd.json` |
 
 When ambiguous, run `node bin/archify.mjs guide "<scenario>" --json`. Scenario proof examples are structural references, not facts to copy.
 
@@ -69,6 +72,7 @@ Read Mermaid for topology and meaning, then author fresh Archify JSON; do not me
 - `flowchart` / `graph` → `workflow`, or `architecture` for a component map.
 - `sequenceDiagram` → `sequence`; participants become semantic participants and arrows become messages.
 - `stateDiagram` → `lifecycle`; states and transitions retain meaning, not Mermaid style.
+- `erDiagram` → `erd`; entity and relationship names, keys, and cardinality retain meaning, not Mermaid style.
 
 ## Delivery
 
