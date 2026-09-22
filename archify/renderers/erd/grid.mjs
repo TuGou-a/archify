@@ -8,12 +8,12 @@ export const DEFAULT_ER_GRID = {
   // left origin matches the renderer margin so every column starts on the same
   // edge. Row bands are taller than the generic rhythm because a table row is
   // text a reader has to scan, not a node label.
-  origin: [32, 56],
+  origin: [32, 40],
   gapX: 56,
-  gapY: 60,
+  gapY: 44,
   entityW: 220,
-  headerH: 30,
-  rowH: 20,
+  headerH: 28,
+  rowH: 18,
 };
 
 export function erGridLayout(er) {

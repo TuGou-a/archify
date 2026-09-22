@@ -67,8 +67,8 @@ const { diagram: er, template, outPath, sourceEvidence } = loadDiagram({
 const grid = erGridLayout(er);
 
 const layout = {
-  margin: 32,
-  legendH: 30,
+  margin: 24,
+  legendH: 26,
   padX: 12,
   keyWidth: 28,
   keyFont: 8,
