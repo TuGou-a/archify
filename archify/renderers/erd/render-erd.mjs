@@ -1066,11 +1066,14 @@ ${renderDefinitions(renderCardinalityDefs())}
         <!-- Domain bands (behind the routes so a channel is never washed out) -->
 ${renderDomainBands()}
 
+        <!-- Bundled relationship trunks (under the branches: a bus runs close
+             to the shared side, so a cardinality glyph that reaches further out
+             has to stay readable over it, and the ring's mask has to be able to
+             punch through) -->
+${bundledTrunkPaths()}
+
         <!-- Relationship paths (before entities for correct z-order) -->
 ${relationships.map((relationship, index) => (renderableRelationship(relationship) ? renderRelationshipPath(relationship, index) : '')).filter(Boolean).join('\n')}
-
-        <!-- Bundled relationship trunks -->
-${bundledTrunkPaths()}
 
         <!-- Entities -->
 ${[...entities.values()].map(renderEntity).join('\n\n')}

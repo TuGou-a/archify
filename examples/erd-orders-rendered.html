@@ -5214,15 +5214,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-domain-label="" x="30" y="239" class="t-muted" font-size="9" font-weight="700">catalog</text>
         </g>
 
+        <!-- Bundled relationship trunks (under the branches: a bus runs close
+             to the shared side, so a cardinality glyph that reaches further out
+             has to stay readable over it, and the ring's mask has to be able to
+             punch through) -->
+        <path data-er-trunk="" data-composition-points="608,132;608,303" d="M 608 132 L 608 303" class="a-default" stroke-width="1.5"/>
+
         <!-- Relationship paths (before entities for correct z-order) -->
         <path data-edge-from="order" data-edge-to="customer" data-edge-label="placed by" data-edge-key="0" data-edge-id="order_customer" data-composition-points="308,120;280,120;280,93;252,93" d="M 308 120 L 288 120 Q 280 120 280 112 L 280 101 Q 280 93 272 93 L 252 93" class="a-default" stroke-width="1.5" marker-start="url(#er-many-start)" marker-end="url(#er-one-end)"/>
         <path data-edge-from="payment" data-edge-to="order" data-edge-key="1" data-edge-id="payment_order" data-composition-points="634,108;568,108" d="M 634 108 L 568 108" class="a-dashed" stroke-width="1.5" marker-start="url(#er-many-optional-start)" marker-end="url(#er-one-end)"/>
         <path data-edge-from="order_item" data-edge-to="order" data-edge-key="2" data-edge-id="order_item_order" data-composition-points="624,303;608,303;608,132;568,132" d="M 624 303 L 608 303 M 608 132 L 568 132" class="a-default" stroke-width="1.5" marker-start="url(#er-many-start)" marker-end="url(#er-one-end)"/>
         <path data-edge-from="order_item" data-edge-to="product" data-edge-key="3" data-edge-id="order_item_product" data-composition-points="624,327;608,327;608,327;548,327" d="M 624 327 L 608 327 L 608 327 L 548 327" class="a-default" stroke-width="1.5" marker-start="url(#er-many-start)" marker-end="url(#er-one-end)"/>
         <path data-edge-from="inventory" data-edge-to="product" data-edge-key="4" data-edge-id="inventory_product" data-composition-points="252,315;328,315" d="M 252 315 L 328 315" class="a-default" stroke-width="1.5" marker-start="url(#er-many-start)" marker-end="url(#er-one-end)"/>
-
-        <!-- Bundled relationship trunks -->
-        <path data-er-trunk="" data-composition-points="608,132;608,303" d="M 608 132 L 608 303" class="a-default" stroke-width="1.5"/>
 
         <!-- Entities -->
         <g id="node-customer" data-node-id="customer" data-node-label="customer" tabindex="0" role="button" aria-label="Focus customer, Entity" aria-pressed="false" data-node-kind="database" data-node-tag="accounts" data-node-context="Entity">

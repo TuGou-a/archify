@@ -521,3 +521,40 @@ test('same-side ports clear the marker glyph and the markers carry the stronger 
   assert.ok(second - first >= 20, `ports clear the 14-unit glyph, got ${second - first}px apart`);
   assert.match(html, /<marker id="er-many-start"[^>]*style="stroke: var\(--text-muted\)"/, 'the crow\u2019s foot is drawn in the stronger ink');
 });
+
+// The bus runs close to the shared side, inside the band a cardinality glyph
+// occupies, so it has to be painted under the branches: over them, it drew
+// straight through the optionality ring's mask and left a circled slash where
+// the reader should see "zero or one".
+test('a bundled trunk is painted under the markers it passes', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Ring over bus', locale: 'en' },
+    layout: { mode: 'grid' },
+    entities: [
+      { id: 'hub', label: 'hub', row: 0, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'child_a', label: 'child_a', row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'child_b', label: 'child_b', row: 1, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    ],
+    relationships: [
+      { id: 'a_hub', from: 'child_a', to: 'hub', fromCardinality: 'many', toCardinality: 'many', toOptional: true },
+      { id: 'b_hub', from: 'child_b', to: 'hub', fromCardinality: 'many', toCardinality: 'many', toOptional: true },
+    ],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-trunk-order-'));
+  const { status, stdout, stderr, output } = render(diagram, directory);
+  assert.equal(status, 0, stdout + stderr);
+  const html = fs.readFileSync(output, 'utf8');
+  const svg = html.slice(html.indexOf('<svg'));
+  assert.ok(/<path data-er-trunk=""/.test(svg), 'the fan-in bundles onto a trunk');
+  assert.ok(
+    svg.indexOf('data-er-trunk') < svg.indexOf('<!-- Relationship paths'),
+    'the bus is painted under the branches that carry the markers',
+  );
+  assert.match(
+    html,
+    /<circle[^>]*class="c-mask"\/>\s*<circle[^>]*\/>/,
+    'the optionality ring masks the relationship line it sits on',
+  );
+});

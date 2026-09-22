@@ -253,6 +253,10 @@ const RAW_RECIPES = [
   {
     id: 'database-schema', type: 'erd', proof: 'orders',
     presentation: { preset: 'classic', motion: 'static', views: 'optional' },
+    start: {
+      en: { descriptionPrompt: 'Use Archify to model this data model as an entity-relationship diagram: [paste the schema DDL, or describe the tables, their key columns, and how they relate]. No repository is required. Include every column the reader needs rather than a summary, mark primary, foreign, and unique keys, and draw each foreign-key relationship with the cardinality and optionality of both ends.' },
+      zh: { descriptionPrompt: '用 Archify 把这份数据模型画成实体关系图：[粘贴建表 DDL，或描述表、关键字段以及表之间的关联]。不需要代码库。字段要完整而不是摘要，标注主键、外键和唯一键，并为每条外键关系画出两端的基数和可选性。' },
+    },
     signals: [['entity relationship', 14], ['er diagram', 15], ['database schema', 13], ['table schema', 12], ['foreign key', 11], ['primary key', 9], ['cardinality', 9], ['实体关系图', 15], ['ER 图', 15], ['表结构', 13], ['数据库设计', 12], ['外键', 11], ['主键', 9], ['实体关系', 12]],
     en: {
       title: 'Database schema', question: 'Which tables exist, what columns and keys do they carry, and how do they relate?',
