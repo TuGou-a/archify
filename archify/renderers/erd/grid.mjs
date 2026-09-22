@@ -4,18 +4,30 @@
 
 export const DEFAULT_ER_GRID = {
   mode: 'grid',
-  origin: [40, 80],
+  // The top origin leaves room for a domain caption above the first band; the
+  // left origin matches the renderer margin so every column starts on the same
+  // edge. Row bands are taller than the generic rhythm because a table row is
+  // text a reader has to scan, not a node label.
+  origin: [32, 56],
   gapX: 56,
-  gapY: 72,
-  entityW: 200,
-  headerH: 26,
-  rowH: 16,
+  gapY: 60,
+  entityW: 220,
+  headerH: 30,
+  rowH: 20,
 };
 
 export function erGridLayout(er) {
   const raw = er.layout;
   if (!raw || raw.mode !== 'grid') return null;
   return { ...DEFAULT_ER_GRID, ...raw };
+}
+
+// An entity may omit `width` and inherit the grid's default. Both the layout and
+// the placement validator must resolve that the same way: reading `entity.width`
+// directly turned the documented default into NaN and reported a placement
+// failure for a box the schema accepts.
+export function resolvedEntityWidth(entity, grid) {
+  return Number.isFinite(entity?.width) ? entity.width : (grid?.entityW ?? DEFAULT_ER_GRID.entityW);
 }
 
 // One header band plus one band per declared column. An entity with no columns
@@ -34,7 +46,7 @@ export function bandedLayout(entities, grid) {
   const heights = new Map();
   for (const entity of entities) {
     if (!Number.isInteger(entity.row) || !Number.isInteger(entity.col)) continue;
-    widths.set(entity.col, Math.max(widths.get(entity.col) || 0, entity.width));
+    widths.set(entity.col, Math.max(widths.get(entity.col) || 0, resolvedEntityWidth(entity, grid)));
     heights.set(entity.row, Math.max(heights.get(entity.row) || 0, entity.height));
   }
 
@@ -65,8 +77,9 @@ export function resolveEntityPos(entity, grid, bands) {
   if (!Number.isFinite(columnX) || !Number.isFinite(rowY)) return [NaN, NaN];
   // Centre each box in its column so the gaps on both sides stay equal; the
   // router reads those gaps as corridors.
-  const columnWidth = bands.widths.get(entity.col) || entity.width;
-  return [columnX + (columnWidth - entity.width) / 2, rowY];
+  const width = resolvedEntityWidth(entity, grid);
+  const columnWidth = bands.widths.get(entity.col) || width;
+  return [columnX + (columnWidth - width) / 2, rowY];
 }
 
 export function validateErGridPlacement(er, grid, bands, problems) {

@@ -103,7 +103,7 @@ test('guide: exact ids win and unknown questions fall back honestly', () => {
 
 test('guide: public data includes both languages and weighted signals', () => {
   const data = publicGuideData();
-  assert.equal(data.length, 12);
+  assert.equal(data.length, 13);
   for (const recipe of data) {
     assert.ok(recipe.en.title);
     assert.ok(recipe.zh.title);

@@ -291,7 +291,11 @@ Before placing boxes, classify tables into functional domains using verified tab
 names, comments, module paths, and foreign-key meaning. Put the domain name in
 `tag` and assign a contiguous rectangle or compact staircase of grid cells to the
 domain. All tables with the same tag stay together; do not interleave unrelated
-tables between members. Order parent/core tables toward the shared boundary and
+tables between members. A domain whose tables form one contiguous run is drawn as
+a labelled band behind them, so the grouping is visible without reading every box;
+a tag spread across the canvas earns no band and stays in that table's header
+instead, which is also how a single-table domain reads. Order parent/core tables
+toward the shared boundary and
 place their direct children beside or beneath them. Columns read left to right and
 rows read top to bottom, so a relationship between neighbouring columns is one
 straight corridor. Never place an unrelated entity between two aligned anchors;

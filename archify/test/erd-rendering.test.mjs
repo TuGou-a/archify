@@ -205,7 +205,15 @@ test('relationships sharing one target side bundle into a trunk with short branc
   // bus reads as one line.
   const trunks = [...html.matchAll(/<path data-er-trunk=""[^>]*>/g)].map((match) => attrs(match[0]));
   assert.equal(trunks.length, 1);
-  assert.equal(trunks[0]['data-composition-points'], '256,104;256,272');
+  // The bus sits one offset outside the hub's right edge and spans both branch
+  // points; the exact coordinate follows the port spread, so the contract is
+  // the offset and the span, not a literal line.
+  const hubRight = entityBoxes(html).get('hub').x + entityBoxes(html).get('hub').width;
+  const [trunkStart, trunkEnd] = trunks[0]['data-composition-points'].split(';').map((pair) => pair.split(',').map(Number));
+  assert.equal(trunkStart[0], hubRight + 16, 'the trunk sits one offset right of the shared side');
+  assert.equal(trunkEnd[0], trunkStart[0], 'the trunk is one straight bus');
+  const branchPorts = relationshipRoutes(html).map((route) => route.points.at(-1)[1]).sort((a, b) => a - b);
+  assert.ok(trunkStart[1] <= branchPorts[0] && trunkEnd[1] >= branchPorts[branchPorts.length - 1], 'the bus spans both branch points');
 
   // Every branch keeps its cardinality markers and its full logical route, but
   // the rendered d skips the stretch the trunk path now carries.
@@ -215,7 +223,7 @@ test('relationships sharing one target side bundle into a trunk with short branc
     assert.match(route.raw, /marker-start="url\(#er-many-start\)"/);
     assert.match(route.raw, /marker-end="url\(#er-one-end\)"/);
     assert.match(route.raw, /d="M [^"]+ M /, 'the branch path leaves the trunk stretch to the trunk path');
-    assert.ok(route.points.some(([x]) => x === 256), 'logical points still traverse the trunk');
+    assert.ok(route.points.some(([x]) => x === trunkStart[0]), 'logical points still traverse the trunk');
   }
   const { status: checkStatus, receipt } = artifactReceipt(output);
   assert.equal(checkStatus, 0, JSON.stringify(receipt.checks.filter((check) => !check.ok), null, 2));
@@ -277,12 +285,20 @@ test('differently styled fan-in groups never share one trunk coordinate', () => 
 
   const trunks = [...html.matchAll(/<path data-er-trunk=""[^>]*>/g)].map((match) => attrs(match[0]));
   assert.equal(trunks.length, 2, 'each style renders its own trunk');
-  const solid = trunks.find((trunk) => trunk['data-composition-points'] === '256,104;256,272');
-  const dashed = trunks.find((trunk) => trunk['data-composition-points'] === '268,289;268,560');
-  assert.ok(solid, 'the solid group keeps the first offset');
+  const solid = trunks.find((trunk) => trunk.class === 'a-default');
+  const dashed = trunks.find((trunk) => trunk.class === 'a-dashed');
+  assert.ok(solid, 'the solid group renders a solid trunk');
   assert.ok(dashed, 'the dashed group moves a lane apart instead of sharing the line');
-  assert.equal(solid.class, 'a-default');
-  assert.equal(dashed.class, 'a-dashed');
+  // The styles must not share a bus line: the dashed trunk takes the next
+  // offset, one lane away from the solid one. The absolute coordinate follows
+  // the port spread, so only the separation and the ordering are contracts.
+  const coordinateOf = (trunk) => Number(trunk['data-composition-points'].split(';')[0].split(',')[0]);
+  const solidX = coordinateOf(solid);
+  const dashedX = coordinateOf(dashed);
+  assert.ok(dashedX > solidX, 'the dashed group takes the next offset outward');
+  assert.equal(dashedX - solidX, 12, 'the two styles stay one lane apart instead of sharing a coordinate');
+  const hubRight = entityBoxes(html).get('hub_a').x + entityBoxes(html).get('hub_a').width;
+  assert.equal(solidX, hubRight + 16, 'the first group keeps the nearest offset');
   const { status: checkStatus, receipt } = artifactReceipt(output);
   assert.equal(checkStatus, 0, JSON.stringify(receipt.checks.filter((check) => !check.ok), null, 2));
 });
@@ -410,4 +426,96 @@ test('the layout report exposes entity boxes and relationship points', () => {
   for (const relationship of report.relationships) {
     assert.ok(relationship.points.length >= 2);
   }
+});
+
+// An omitted `width` is a documented default (`layout.entityW`), not an error:
+// resolving it in measurement but reading the raw field in placement turned the
+// default into a NaN column and reported a placement failure for a valid box.
+test('an entity that omits its width is placed at the grid default', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Default width', locale: 'en' },
+    layout: { mode: 'grid', entityW: 240 },
+    entities: [
+      { id: 'parent', label: 'parent', row: 0, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'child', label: 'child', row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    ],
+    relationships: [{ id: 'child_parent', from: 'child', to: 'parent', fromCardinality: 'many', toCardinality: 'one' }],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-default-width-'));
+  const { status, stdout, stderr, output } = render(diagram, directory);
+  assert.equal(status, 0, stdout + stderr);
+  const boxes = entityBoxes(fs.readFileSync(output, 'utf8'));
+  assert.equal(boxes.size, 2, 'both boxes are placed');
+  for (const [id, box] of boxes) {
+    assert.equal(box.width, 240, `${id} uses the grid default width`);
+  }
+});
+
+// A vertical run of same-tag tables is a domain, and the band is what makes the
+// grouping visible; a tag whose members are scattered is a grouping the author
+// did not make, so no band claims it.
+test('a contiguous domain draws a band and a scattered tag does not', () => {
+  const band = (entities, relationships) => {
+    const diagram = {
+      schema_version: 1,
+      diagram_type: 'erd',
+      meta: { title: 'Domains', locale: 'en' },
+      layout: { mode: 'grid' },
+      entities,
+      relationships,
+    };
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-band-'));
+    const { status, stdout, stderr, output } = render(diagram, directory);
+    assert.equal(status, 0, stdout + stderr);
+    return fs.readFileSync(output, 'utf8');
+  };
+  const nodes = (tagFor) => [
+    { id: 'alpha', label: 'alpha', tag: tagFor('alpha'), row: 0, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    { id: 'beta', label: 'beta', tag: tagFor('beta'), row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    { id: 'gamma', label: 'gamma', tag: 'catalog', row: 1, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    { id: 'delta', label: 'delta', tag: 'catalog', row: 1, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+  ];
+  const links = [{ id: 'beta_alpha', from: 'beta', to: 'alpha', fromCardinality: 'many', toCardinality: 'one' }];
+
+  const contiguous = band(nodes(() => 'checkout'), links);
+  assert.match(contiguous, /data-domain-band="checkout"/, 'a row of same-tag tables earns a band');
+  assert.match(contiguous, /data-domain-band="catalog"/, 'a second contiguous domain earns its own band');
+
+  const scattered = band(nodes((id) => (id === 'alpha' ? 'checkout' : id === 'delta' ? 'checkout' : 'other')), links);
+  assert.doesNotMatch(scattered, /data-domain-band="checkout"/, 'a tag split across the canvas draws no band');
+});
+
+// Port spacing and glyph ink are what make both ends readable: the shared 14px
+// spread put two 14-unit crow's feet close enough to read as one shape, and the
+// shared arrow colour sits near 2:1 against a table fill in the light theme.
+test('same-side ports clear the marker glyph and the markers carry the stronger ink', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Crowded side', locale: 'en' },
+    layout: { mode: 'grid' },
+    entities: [
+      { id: 'hub', label: 'hub', row: 0, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'left_a', label: 'left_a', row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'left_b', label: 'left_b', row: 1, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    ],
+    relationships: [
+      { id: 'a_hub', from: 'left_a', to: 'hub', fromCardinality: 'many', toCardinality: 'one' },
+      { id: 'b_hub', from: 'left_b', to: 'hub', fromCardinality: 'many', toCardinality: 'one' },
+    ],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-ports-'));
+  const { status, stdout, stderr, output } = render(diagram, directory);
+  assert.equal(status, 0, stdout + stderr);
+  const html = fs.readFileSync(output, 'utf8');
+  const hub = entityBoxes(html).get('hub');
+  const arrivals = relationshipRoutes(html)
+    .map((route) => route.points.at(-1))
+    .filter((point) => point[0] === hub.x + hub.width);
+  assert.equal(arrivals.length, 2, 'both relationships arrive on the hub side');
+  const [first, second] = arrivals.map((point) => point[1]).sort((a, b) => a - b);
+  assert.ok(second - first >= 20, `ports clear the 14-unit glyph, got ${second - first}px apart`);
+  assert.match(html, /<marker id="er-many-start"[^>]*style="stroke: var\(--text-muted\)"/, 'the crow\u2019s foot is drawn in the stronger ink');
 });

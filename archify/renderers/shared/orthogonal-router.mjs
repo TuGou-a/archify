@@ -1,6 +1,14 @@
-// Internal architecture router shared by rendering and geometry inspection.
-// Create a new router when measured boxes or connections change: port spreading
-// is computed once and route results are cached for this scene.
+// Orthogonal connection router shared by the typed renderers (architecture,
+// lifecycle, erd). Create a new router when measured boxes or connections
+// change: port spreading is computed once and route results are cached for
+// this scene.
+//
+// A type that owns diagram-specific geometry adds it through options instead of
+// copying the router: `sideFor` biases the inferred endpoint sides,
+// `portSpacing` widens the automatic port spread, and
+// `preferredCandidates`/`extraCandidates` contribute candidate families that
+// run before or after the shared ones. Every option is inert when omitted, so a
+// caller that passes none keeps the architecture routing exactly.
 
 import {
   segmentIntersectsRect,
@@ -35,11 +43,27 @@ import { shortestOrthogonalGridRoute } from '../shared/route-quality.mjs';
  *   rects resolved so far; later automatic routes keep clear of it so a dense
  *   fan-out does not leave the label nowhere to go
  */
+/**
+ * @param {(conn: object, endpoint: 'source'|'target') => string|undefined} [options.sideFor]
+ *   default side of an endpoint when the connection does not author one; a
+ *   type whose glyphs or reading order differ from architecture supplies its own
+ * @param {number} [options.portSpacing] automatic port spread spacing on a
+ *   shared side; raise it when an endpoint glyph is taller than the default
+ * @param {(context: {conn: object, from: object, to: object, start: number[], end: number[], fromSide: string, toSide: string}) => number[][][]} [options.preferredCandidates]
+ *   candidate families tried before the shared ones, so a type-owned corridor
+ *   (a bundled trunk, a dedicated lane) wins over the generic midpoint
+ * @param {(context: object) => number[][][]} [options.extraCandidates]
+ *   candidate families tried after the shared ones and before the obstacle grid
+ */
 export function createRouter(components, connections, {
   frames = [],
   interiorSegmentPx = 16,
   microSegmentPx = 8,
   labelRectFor = null,
+  sideFor = null,
+  portSpacing = null,
+  preferredCandidates = null,
+  extraCandidates = null,
 } = {}) {
   const frameBorders = frames.flatMap((frame) => frameBorderSegments(frame));
   const LABEL_CLEARANCE = 4;
@@ -388,6 +412,22 @@ export function createRouter(components, connections, {
       }
       case 'auto':
       default: {
+        // A type may own the corridor for relationships that would otherwise
+        // share one channel. Preferred candidates are tried before the shared
+        // families, so a declared trunk or lane wins over the generic midpoint;
+        // a candidate that violates the endpoint contract or an obstacle is
+        // skipped and the historical order below still applies.
+        if (preferredCandidates) {
+          for (const candidate of preferredCandidates({ conn, from, to, start, end, fromSide, toSide }) || []) {
+            const points = [start, ...candidate, end];
+            if (routeHonorsEndpointSides(points, fromSide, toSide)
+                && routeClearsEndpointComponents(points, from, to)
+                && routeClearsComponents(conn, points)
+                && routeMeetsCompositionFloors(points)
+                && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
+          }
+        }
+
         // Direct line unless the anchors are clearly orthogonal-friendly.
         const deltaX = Math.abs(start[0] - end[0]);
         const deltaY = Math.abs(start[1] - end[1]);
@@ -476,6 +516,21 @@ export function createRouter(components, connections, {
               && routeClearsComponents(conn, points)
               && routeMeetsCompositionFloors(points)
               && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
+        }
+
+        // A type may supply its own candidate family for the cases the shared
+        // families cannot take. It runs only after they fail, so an ordinary
+        // diagram keeps its exact routing while a denser one still gets a
+        // legal route instead of a gate failure.
+        if (extraCandidates) {
+          for (const candidate of extraCandidates({ conn, from, to, start, end, fromSide, toSide }) || []) {
+            const points = [start, ...candidate, end];
+            if (routeHonorsEndpointSides(points, fromSide, toSide)
+                && routeClearsEndpointComponents(points, from, to)
+                && routeClearsComponents(conn, points)
+                && routeMeetsCompositionFloors(points)
+                && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
+          }
         }
 
         // Two-bend doglegs are deliberately cheap, but a real architecture can
@@ -569,13 +624,16 @@ export function createRouter(components, connections, {
 
   const pathCache = new Map();
   const selectedSides = new Map();
-  const automaticPorts = automaticPortSpread(connections, components);
+  const automaticPorts = automaticPortSpread(connections, components, {
+    ...(sideFor ? { sideFor } : {}),
+    ...(portSpacing !== null ? { maxSpacing: portSpacing } : {}),
+  });
   function inferredConnectionSides(conn) {
     const from = components.get(conn.from);
     const to = components.get(conn.to);
     return {
-      fromSide: chosenSide(conn.fromSide, defaultFromSide(from, to)),
-      toSide: chosenSide(conn.toSide, defaultToSide(from, to)),
+      fromSide: chosenSide(conn.fromSide, sideFor?.(conn, 'source') || defaultFromSide(from, to)),
+      toSide: chosenSide(conn.toSide, sideFor?.(conn, 'target') || defaultToSide(from, to)),
     };
   }
 
@@ -778,5 +836,5 @@ export function createRouter(components, connections, {
     return { ...planningMetrics };
   }
 
-  return { pathFor, connectionSides, connectionEndpointSide, routingMetrics };
+  return { ports: automaticPorts, pathFor, connectionSides, connectionEndpointSide, routingMetrics };
 }

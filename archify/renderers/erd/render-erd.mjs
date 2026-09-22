@@ -26,6 +26,7 @@ import {
   entityHeight,
   erGridLayout,
   resolveEntityPos,
+  resolvedEntityWidth,
   validateErGridPlacement,
 } from './grid.mjs';
 import {
@@ -40,6 +41,8 @@ import {
   componentFill,
   componentText,
   labelPoint,
+  legacyDefaultFromSide,
+  legacyDefaultToSide,
   rectsOverlap,
   roundedPath,
   routePointsValue,
@@ -48,13 +51,13 @@ import {
   suggestLabelObstacleFix,
   variantAccent,
 } from '../shared/geometry.mjs';
-import { createOrthogonalRouter } from '../shared/orthogonal-router.mjs';
+import { createRouter } from '../shared/orthogonal-router.mjs';
 import { entityBox, connectionPath as relationshipPath } from '../shared/layout-report.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const layoutJsonMode = process.argv.includes('--layout-json');
 const cliArgs = process.argv.filter((arg) => arg !== '--layout-json');
-const { diagram: er, template, outPath } = loadDiagram({
+const { diagram: er, template, outPath, sourceEvidence } = loadDiagram({
   rendererDir: __dirname,
   diagramType: 'erd',
   defaultExample: 'orders.erd.json',
@@ -64,19 +67,19 @@ const { diagram: er, template, outPath } = loadDiagram({
 const grid = erGridLayout(er);
 
 const layout = {
-  margin: 40,
-  legendH: 28,
-  padX: 10,
-  keyWidth: 26,
-  keyFont: 7,
-  headerFont: 11,
-  headerFontMinimum: 8,
-  rowFont: 9,
-  rowFontMinimum: 7,
-  typeFont: 8,
-  typeFontMinimum: 7,
-  detailPreferred: 8,
-  detailMinimum: 6,
+  margin: 32,
+  legendH: 30,
+  padX: 12,
+  keyWidth: 28,
+  keyFont: 8,
+  headerFont: 12,
+  headerFontMinimum: 9,
+  rowFont: 10,
+  rowFontMinimum: 8,
+  typeFont: 9,
+  typeFontMinimum: 8,
+  detailPreferred: 9,
+  detailMinimum: 7,
   minRelationshipLength: 24,
 };
 
@@ -89,9 +92,9 @@ const KEY_ACCENT = { pk: 't-database', fk: 't-messagebus', uk: 't-muted' };
 // renderer can never disagree about a box's height.
 const metrics = grid ?? DEFAULT_ER_GRID;
 
-const entityWidth = (entity) => (
-  Number.isFinite(entity.width) ? entity.width : (grid?.entityW ?? DEFAULT_ER_GRID.entityW)
-);
+// Width resolution lives in the grid module so placement and measurement cannot
+// disagree about an entity that omits `width`.
+const entityWidth = (entity) => resolvedEntityWidth(entity, grid);
 
 const measuredEntities = asArray(er.entities).map((entity) => {
   const attributes = asArray(entity.attributes);
@@ -112,6 +115,65 @@ const entities = new Map(measuredEntities.map((entity) => {
 }));
 
 const relationships = asArray(er.relationships);
+
+// ---- Domain bands ------------------------------------------------------------
+// A `tag` names a domain, and a domain has to read as one block. The band is
+// measured from the placed boxes of the entities that carry the tag, so it
+// follows the authored grid instead of introducing a second layout pass. Only a
+// run that is genuinely contiguous (one row with adjacent columns, or one column
+// with adjacent rows) earns a band: a tag whose members are spread across the
+// canvas is a grouping the author did not actually make, and drawing a band
+// around the gap would claim a structure the table placement contradicts. A
+// single-member or scattered tag still shows in its table's header note.
+const DOMAIN_PAD_X = 12;
+const DOMAIN_PAD_TOP = 18;
+const DOMAIN_PAD_BOTTOM = 8;
+
+function gridRunIsContiguous(members) {
+  const cols = [...new Set(members.map((entity) => entity.col))].sort((a, b) => a - b);
+  const rows = [...new Set(members.map((entity) => entity.row))].sort((a, b) => a - b);
+  const adjacent = (values) => values.every((value, index) => index === 0 || value === values[index - 1] + 1);
+  if (rows.length === 1) return adjacent(cols);
+  if (cols.length === 1) return adjacent(rows);
+  return false;
+}
+
+const domainGroups = (() => {
+  const byTag = new Map();
+  for (const entity of entities.values()) {
+    if (!entity.tag) continue;
+    if (!byTag.has(entity.tag)) byTag.set(entity.tag, []);
+    byTag.get(entity.tag).push(entity);
+  }
+  const groups = [];
+  for (const [tag, members] of byTag) {
+    if (members.length < 2) continue;
+    if (!members.every((entity) => Number.isInteger(entity.row) && Number.isInteger(entity.col))) continue;
+    if (!gridRunIsContiguous(members)) continue;
+    groups.push({ tag, members });
+  }
+  return groups;
+})();
+
+const bandedEntityIds = new Set(domainGroups.flatMap((group) => group.members.map((entity) => entity.id)));
+
+function renderDomainBands() {
+  if (!domainGroups.length) return '';
+  return domainGroups.map(({ tag, members }) => {
+    const minX = Math.min(...members.map((entity) => entity.x));
+    const minY = Math.min(...members.map((entity) => entity.y));
+    const maxX = Math.max(...members.map((entity) => entity.x + entity.width));
+    const maxY = Math.max(...members.map((entity) => entity.y + entity.height));
+    const x = minX - DOMAIN_PAD_X;
+    const y = minY - DOMAIN_PAD_TOP;
+    const width = maxX - minX + DOMAIN_PAD_X * 2;
+    const height = maxY - minY + DOMAIN_PAD_TOP + DOMAIN_PAD_BOTTOM;
+    return `        <g data-domain-band="${esc(tag)}">
+          <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" class="c-lane" stroke-width="1"/>
+          <text data-domain-label="" x="${x + 10}" y="${y + 13}" class="t-muted" font-size="9" font-weight="700">${esc(tag)}</text>
+        </g>`;
+  }).join('\n');
+}
 
 const entitySteps = new Map();
 for (const [index, relationship] of relationships.entries()) {
@@ -151,17 +213,20 @@ function cardinalityMarkerId(relationship, endpoint) {
 // sits on the path endpoint and the toes spread back along the relationship.
 // `start` markers are mirrored because an oriented marker's +x axis points
 // along the path direction, which leaves the from-endpoint heading outward.
+// The glyph is drawn in `er-glyph`, which lifts the ink off the shared arrow
+// token: at the light-theme arrow colour a crow's foot over a table fill sits
+// near 2:1 contrast and reads as a smudge.
 function cardinalityMarkerMarkup(id, { cardinality, optional, mirror }) {
   const flip = (x) => (mirror ? 16 - x : x);
   const parts = [];
   if (cardinality === 'many') {
-    parts.push(`<path d="M ${flip(16)} 8 L ${flip(2)} 2 M ${flip(16)} 8 L ${flip(2)} 8 M ${flip(16)} 8 L ${flip(2)} 14"/>`);
+    parts.push(`<path d="M ${flip(16)} 8 L ${flip(2)} 1 M ${flip(16)} 8 L ${flip(2)} 8 M ${flip(16)} 8 L ${flip(2)} 15"/>`);
   } else {
-    parts.push(`<path d="M ${flip(11)} 2 L ${flip(11)} 14"/>`);
+    parts.push(`<path d="M ${flip(11)} 1 L ${flip(11)} 15"/>`);
   }
-  if (optional) parts.push(`<circle cx="${flip(5)}" cy="8" r="2.6"/>`);
+  if (optional) parts.push(`<circle cx="${flip(5)}" cy="8" r="3"/>`);
   const refX = mirror ? 0 : 16;
-  return `          <marker id="${esc(id)}" markerWidth="18" markerHeight="18" refX="${refX}" refY="8" orient="auto" markerUnits="userSpaceOnUse" class="a-default" stroke-width="1.25">
+  return `          <marker id="${esc(id)}" markerWidth="18" markerHeight="18" refX="${refX}" refY="8" orient="auto" markerUnits="userSpaceOnUse" class="a-default" style="stroke: var(--text-muted)" stroke-width="1.75">
             ${parts.join('\n            ')}
           </marker>`;
 }
@@ -226,20 +291,35 @@ const legendY = () => viewBox[1] - 16;
 // skipped and the shared candidate families run unchanged.
 const LANE_STEP = 12;
 
+// A cardinality glyph is 14 units tall, so two relationships leaving the same
+// table side must sit at least this far apart: the shared 14px spread put them
+// close enough to read as one shape. The trunk bridge below is derived from it.
+const ERD_PORT_SPACING = 24;
+
 const bandKey = (entity) => (
   Number.isInteger(entity.row) && Number.isInteger(entity.col)
     ? `i${entity.row},${entity.col}`
     : `p${Math.round(entity.x || 0)},${Math.round(entity.y || 0)}`
 );
 
-const { ports, pathFor, connectionSides, connectionEndpointSide } = createOrthogonalRouter({
-  relations: relationships,
-  components: entities,
+const { ports, pathFor, connectionSides, connectionEndpointSide } = createRouter(entities, relationships, {
+  // Horizontal-first, like every other non-architecture type: a relationship
+  // leaves and enters on the left/right when the tables sit side by side and
+  // only falls back to a top/bottom port when they share a column. The shared
+  // router defaults to architecture's dominant-axis inference, which would flip
+  // the side of a relationship whose targets happen to sit further apart
+  // vertically, splitting one fan-in into two groups nobody authored.
+  sideFor: (relationship, endpoint) => {
+    const from = entities.get(relationship.from);
+    const to = entities.get(relationship.to);
+    if (!from || !to) return undefined;
+    return endpoint === 'source' ? legacyDefaultFromSide(from, to) : legacyDefaultToSide(from, to);
+  },
   preferredCandidates: (context) => [...trunkCandidates(context), ...laneCandidates(context)],
   extraCandidates: (context) => [...detourCandidates(context), ...outsideCandidates(context)],
-  // An entity sitting between two aligned anchors must be routed around, not
-  // drawn through: the direct line is only taken when it is genuinely clear.
-  strictClearance: true,
+  // A cardinality glyph is 14 units tall, so ports must clear it (see
+  // ERD_PORT_SPACING, which the trunk bridge is derived from).
+  portSpacing: ERD_PORT_SPACING,
 });
 
 function corridorKey(relationship) {
@@ -288,7 +368,10 @@ const laneOffsets = new Map();
 // clip an entity falls back to the ordinary families and stays unbundled.
 const TRUNK_OFFSETS = [16, 22, 12, 28];
 const TRUNK_SNAP = LANE_STEP;
-const TRUNK_BRIDGE = 16;
+// One port step of uncovered bus is a bus with a gap in it: the branches were
+// spread by ERD_PORT_SPACING, so the gap they leave is exactly that wide. Two
+// steps means the runs belong to different groups and stay separate lines.
+const TRUNK_BRIDGE = ERD_PORT_SPACING + 8;
 const TRUNK_CAP = 10;
 const TRUNK_LEG = 12;
 
@@ -865,7 +948,10 @@ function renderEntityColumnRows(entity) {
 
 function renderEntity(entity) {
   const header = entity.y + metrics.headerH;
-  const detail = entity.sublabel ?? entity.tag;
+  // A banded table already carries its domain on the band, so repeating the tag
+  // in the header would be noise; the header note falls back to the tag only for
+  // a table that has no band of its own.
+  const detail = entity.sublabel ?? (bandedEntityIds.has(entity.id) ? undefined : entity.tag);
   const detailFontSize = detail
     ? fittedNodeFontSize(detail, 60, layout.detailPreferred, layout.detailMinimum)
     : 0;
@@ -910,18 +996,21 @@ function renderRelationshipLabel(relationship, index) {
         </g>`;
 }
 
+// The swatch repeats the marker's own ink and weight, so the legend shows the
+// reader the exact glyph the diagram draws rather than a thinner stand-in.
 function legendSwatch(entry) {
-  const y = entry.baseline - 9;
+  const y = entry.baseline - 10;
+  const ink = 'style="stroke: var(--text-muted)" stroke-width="1.75" fill="none"';
   if (entry.kind === 'one' || entry.kind === 'many') {
     const symbol = entry.kind === 'many'
-      ? `<path d="M ${entry.x + 17} ${y + 5} L ${entry.x + 3} ${y} M ${entry.x + 17} ${y + 5} L ${entry.x + 3} ${y + 5} M ${entry.x + 17} ${y + 5} L ${entry.x + 3} ${y + 10}" class="a-default" stroke-width="1.25"/>`
-      : `<path d="M ${entry.x + 9} ${y} L ${entry.x + 9} ${y + 10}" class="a-default" stroke-width="1.25"/>`;
+      ? `<path d="M ${entry.x + 18} ${y + 6} L ${entry.x + 2} ${y + 1} M ${entry.x + 18} ${y + 6} L ${entry.x + 2} ${y + 6} M ${entry.x + 18} ${y + 6} L ${entry.x + 2} ${y + 11}" ${ink}/>`
+      : `<path d="M ${entry.x + 10} ${y + 1} L ${entry.x + 10} ${y + 11}" ${ink}/>`;
     return symbol;
   }
   if (entry.kind === 'optional') {
-    return `<circle cx="${entry.x + 8}" cy="${y + 5}" r="2.6" class="a-default" stroke-width="1.25"/>`;
+    return `<circle cx="${entry.x + 9}" cy="${y + 6}" r="3" ${ink}/>`;
   }
-  return `<text x="${entry.x + 2}" y="${y + 9}" class="${KEY_ACCENT[entry.kind] || 't-muted'}" font-size="7" font-weight="600">${esc(entry.kind.toUpperCase())}</text>`;
+  return `<text x="${entry.x + 2}" y="${y + 10}" class="${KEY_ACCENT[entry.kind] || 't-muted'}" font-size="8.5" font-weight="700">${esc(entry.kind.toUpperCase())}</text>`;
 }
 
 function renderLegend() {
@@ -942,12 +1031,14 @@ function renderLegend() {
       x: layout.margin,
       baselineY: legendY(),
       width: viewBox[0] - layout.margin * 2,
+      fontSize: 9,
       minTitleY: contentBottom + 8,
       obstacles: relationshipObstacles,
       unfit: er.meta?.legend === undefined ? 'hide' : 'error',
       diagramType: 'erd',
     },
     renderSwatch: legendSwatch,
+    labelWeight: 600,
   });
 }
 
@@ -958,6 +1049,9 @@ ${renderDefinitions(renderCardinalityDefs())}
 
         <!-- Background Grid -->
         <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Domain bands (behind the routes so a channel is never washed out) -->
+${renderDomainBands()}
 
         <!-- Relationship paths (before entities for correct z-order) -->
 ${relationships.map((relationship, index) => (renderableRelationship(relationship) ? renderRelationshipPath(relationship, index) : '')).filter(Boolean).join('\n')}
@@ -988,4 +1082,5 @@ writeDiagram({
   meta: er.meta,
   svg: renderSvg(),
   cards: er.cards,
+  sourceEvidence,
 });

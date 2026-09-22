@@ -58,18 +58,28 @@ exception.
 Relationships route through the shared orthogonal router, so the same contracts
 as every other type apply: automatic port spreading on a shared entity, the
 endpoint-side contract, the route-rhythm floors, and the universal Clean Flow
-gate. Two differences are specific to this renderer:
+gate. Four differences are specific to this renderer:
 
+- Endpoints resolve horizontal-first, like every other non-architecture type: a
+  relationship leaves and enters on the left/right whenever the tables sit side
+  by side, and only falls back to a top/bottom port when they share a column. The
+  shared router's default is architecture's dominant-axis inference, which would
+  split one fan-in into two groups whenever a target happened to sit further away
+  vertically than horizontally.
+- Automatic ports on one side keep at least 24 units between them, because a
+  cardinality glyph is 14 units tall: at the shared 14-unit spread two crow's feet
+  on one table edge read as a single smudge.
 - Relationships that would share one corridor get a deterministic lane offset,
   so parallel foreign keys never sit on the identical channel line.
 - Relationships that share one entity side (a fan-in of foreign keys, or a
   fan-out parent) and one marker style bundle onto a single trunk just outside
   that side: one bus line with a short branch per relationship, instead of a
-  sheaf of parallel lanes. The trunk is only a preferred route — a branch that
-  would break the endpoint contract or clip an entity falls back to the
-  ordinary families and stays unbundled, and anything authored (`route`,
-  `via`, `labelAt`) keeps its own line. Logical routes still traverse the
-  trunk, so every gate, label, and the layout report see the full geometry.
+  sheaf of parallel lanes. The trunk bridges one port step of uncovered bus, so
+  the port spread above still reads as one line. The trunk is only a preferred
+  route — a branch that would break the endpoint contract or clip an entity falls
+  back to the ordinary families and stays unbundled, and anything authored
+  (`route`, `via`, `labelAt`) keeps its own line. Logical routes still traverse
+  the trunk, so every gate, label, and the layout report see the full geometry.
 - Entity boxes are opaque obstacles. When a third entity sits between two
   aligned anchors, the renderer emits a U-shaped detour around it, and a route
   that still cannot clear an unrelated entity fails with
@@ -79,6 +89,38 @@ The renderer also reports ER-specific diagnostics: unknown entities in
 `from`/`to`, unknown attribute names and unresolved `references`, duplicate attribute
 names, self-referencing relationships, overlapping entity boxes, and rows whose
 text cannot fit inside the declared entity width.
+
+## Domain bands
+
+`tag` names a table's functional domain, and a domain is drawn as a band when the
+tables carrying that tag occupy a contiguous run of grid cells — one row with
+adjacent columns, or one column with adjacent rows. The band is measured from the
+placed boxes and carries the tag as its caption, which is what makes a grouped
+schema readable at a glance: the reader sees blocks instead of six equally
+weighted boxes.
+
+A tag spread across the canvas earns no band, because a band around the gap would
+claim a grouping the placement contradicts; that tag stays in the table header
+instead, together with any `sublabel`. A single-table domain always reads that
+way. `sublabel` is the per-table note and is never drawn on a band.
+
+## Cardinality ink
+
+The crow's foot, the single bar, and the optional circle are drawn in the theme's
+muted text ink rather than the shared arrow token: at the light theme's arrow
+colour a glyph over a table fill sits near 2:1 contrast and reads as a smudge,
+while the muted text ink clears the 3:1 non-text floor in both themes. The legend
+repeats the same ink and stroke weight, and its labels render one step larger and
+heavier than the shared legend default, so the legend shows the reader the exact
+glyph the diagram draws.
+
+## Typography
+
+Table rows are text a reader scans, so the ERD's rhythm is looser than the generic
+diagram rhythm: a 30-unit header, 20-unit rows, and 8–12-unit type scaled to fit
+the declared width. A row whose text cannot fit is a diagnostic rather than a
+silently truncated cell, so a narrow table names the field it cannot show and asks
+for a wider box.
 
 ## Reading a schema
 
@@ -93,7 +135,8 @@ not depend on hover or focus. Use cards only for supplementary constraints,
 inferred relationships, and domain rules; never use them to hide the full table.
 
 Group tables by functional domain before assigning grid cells. Give members of one
-domain the same concise `tag` and keep them in a contiguous, non-interleaved block.
-A wide entity is a taller wall for the router to get around, and the projected text
+domain the same concise `tag` and keep them in a contiguous, non-interleaved block;
+that block is what the band is measured from. A wide entity is a taller wall for
+the router to get around, and the projected text
 minimum still applies at 1440x900, so prefer a compact grouped grid and a smaller
 number of columns before shrinking or hiding fields.
