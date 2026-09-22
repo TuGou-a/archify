@@ -142,7 +142,17 @@ test('start page: every gallery case type resolves to a start entry', () => {
     assert.ok(known.has(type), `gallery type "${type}" is not in the start page allow-list`);
     assert.ok(starts[type], `gallery type "${type}" has no start entry`);
     assert.ok(starts[type].en.descriptionPrompt && starts[type].zh.descriptionPrompt, `${type}: start prompts are bilingual`);
+    // The chooser is the reader's way in: a type the page can render but the
+    // buttons cannot reach is unreachable by click and skipped by keyboard walk.
+    assert.match(html, new RegExp(`data-type="${type}"`), `gallery type "${type}" has no chooser button`);
   }
+
+  // The label counts the renderers next to the buttons, so it drifts silently.
+  const buttons = [...html.matchAll(/class="type-tab"[^>]*data-type="/g)].length;
+  const label = html.match(/<strong data-en="(\d+) typed renderers"/);
+  assert.ok(label, 'the chooser states how many typed renderers it offers');
+  assert.equal(Number(label[1]), buttons, 'the stated renderer count matches the chooser buttons');
+  assert.equal(buttons, Object.keys(starts).length, 'every start entry has a chooser button');
 });
 
 test('start page: offers six bounded bilingual starts without ingesting source content', () => {
