@@ -68,7 +68,7 @@ const grid = erGridLayout(er);
 
 const layout = {
   margin: 24,
-  legendH: 26,
+  legendH: 32,
   padX: 12,
   keyWidth: 28,
   keyFont: 8,
@@ -213,20 +213,33 @@ function cardinalityMarkerId(relationship, endpoint) {
 // sits on the path endpoint and the toes spread back along the relationship.
 // `start` markers are mirrored because an oriented marker's +x axis points
 // along the path direction, which leaves the from-endpoint heading outward.
-// The glyph is drawn in `er-glyph`, which lifts the ink off the shared arrow
-// token: at the light-theme arrow colour a crow's foot over a table fill sits
-// near 2:1 contrast and reads as a smudge.
+// The glyph is drawn in the muted text ink rather than the shared arrow token:
+// at the light theme's arrow colour a crow's foot over a table fill sits near
+// 2:1 contrast and reads as a smudge.
+//
+// The optionality ring sits past the toes rather than inside them. Both facts
+// are about the same end, so a ring centred on the foot would be bisected by
+// its middle toe and read as one muddy shape instead of "zero or many".
+const MARKER_GLYPH_WIDTH = 24;
+const MARKER_VERTEX_X = 22;
+const MARKER_CIRCLE_X = 3.5;
 function cardinalityMarkerMarkup(id, { cardinality, optional, mirror }) {
-  const flip = (x) => (mirror ? 16 - x : x);
+  const flip = (x) => (mirror ? MARKER_VERTEX_X - x : x);
   const parts = [];
   if (cardinality === 'many') {
-    parts.push(`<path d="M ${flip(16)} 8 L ${flip(2)} 1 M ${flip(16)} 8 L ${flip(2)} 8 M ${flip(16)} 8 L ${flip(2)} 15"/>`);
+    parts.push(`<path d="M ${flip(MARKER_VERTEX_X)} 8 L ${flip(8)} 1 M ${flip(MARKER_VERTEX_X)} 8 L ${flip(8)} 8 M ${flip(MARKER_VERTEX_X)} 8 L ${flip(8)} 15"/>`);
   } else {
-    parts.push(`<path d="M ${flip(11)} 1 L ${flip(11)} 15"/>`);
+    parts.push(`<path d="M ${flip(17)} 1 L ${flip(17)} 15"/>`);
   }
-  if (optional) parts.push(`<circle cx="${flip(5)}" cy="8" r="3"/>`);
-  const refX = mirror ? 0 : 16;
-  return `          <marker id="${esc(id)}" markerWidth="18" markerHeight="18" refX="${refX}" refY="8" orient="auto" markerUnits="userSpaceOnUse" class="a-default" style="stroke: var(--text-muted)" stroke-width="1.75">
+  if (optional) {
+    // The ring sits on the relationship line, so the line has to be masked
+    // under it: a stroked circle alone leaves the dashes running through the
+    // middle and the symbol reads as a crossed-out dot.
+    parts.push(`<circle cx="${flip(MARKER_CIRCLE_X)}" cy="8" r="2.6" class="c-mask"/>`);
+    parts.push(`<circle cx="${flip(MARKER_CIRCLE_X)}" cy="8" r="2.6"/>`);
+  }
+  const refX = mirror ? 0 : MARKER_VERTEX_X;
+  return `          <marker id="${esc(id)}" markerWidth="${MARKER_GLYPH_WIDTH}" markerHeight="18" refX="${refX}" refY="8" orient="auto" markerUnits="userSpaceOnUse" class="a-default" style="stroke: var(--text-muted)" stroke-width="1.75">
             ${parts.join('\n            ')}
           </marker>`;
 }
@@ -743,7 +756,7 @@ function validateEr() {
 
   const seenEntityIds = new Set();
   for (const entity of asArray(er.entities)) {
-    if (seenEntityIds.has(entity.id)) problems.push(`Duplicate entity id "${entity.id}".`);
+    if (seenEntityIds.has(entity.id)) problems.push(`Entity ids must be unique; "${entity.id}" is declared twice.`);
     seenEntityIds.add(entity.id);
 
     if (!Number.isFinite(entity.width) && entity.width !== undefined) {

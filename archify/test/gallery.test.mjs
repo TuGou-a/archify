@@ -104,7 +104,7 @@ test('generated proof gallery matches its sources, receipts, and checked-in arti
   assert.match(html, /\.filter-button \{\s+min-height: 44px;/);
   assert.match(html, /\.card-link \{ min-height: 44px;/);
   assert.equal((html.match(/class="card-link create-link"/g) || []).length, 12);
-  for (const type of ['architecture', 'workflow', 'sequence', 'dataflow', 'lifecycle']) {
+  for (const type of ['architecture', 'workflow', 'sequence', 'dataflow', 'lifecycle', 'erd']) {
     assert.match(html, new RegExp(`start\\.html\\?type=${type}&amp;source=gallery`), `${type}: gallery-to-start link missing`);
   }
   assert.match(html, /class="community-callout"/);

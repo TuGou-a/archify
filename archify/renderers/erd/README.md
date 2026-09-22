@@ -58,7 +58,7 @@ exception.
 Relationships route through the shared orthogonal router, so the same contracts
 as every other type apply: automatic port spreading on a shared entity, the
 endpoint-side contract, the route-rhythm floors, and the universal Clean Flow
-gate. Four differences are specific to this renderer:
+gate. Five differences are specific to this renderer:
 
 - Endpoints resolve horizontal-first, like every other non-architecture type: a
   relationship leaves and enters on the left/right whenever the tables sit side
@@ -117,7 +117,7 @@ glyph the diagram draws.
 ## Typography
 
 Table rows are text a reader scans, so the ERD's rhythm is looser than the generic
-diagram rhythm: a 30-unit header, 20-unit rows, and 8–12-unit type scaled to fit
+diagram rhythm: a 28-unit header, 18-unit rows, and 8–12-unit type scaled to fit
 the declared width. A row whose text cannot fit is a diagnostic rather than a
 silently truncated cell, so a narrow table names the field it cannot show and asks
 for a wider box.

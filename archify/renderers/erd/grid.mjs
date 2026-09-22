@@ -4,10 +4,10 @@
 
 export const DEFAULT_ER_GRID = {
   mode: 'grid',
-  // The top origin leaves room for a domain caption above the first band; the
-  // left origin matches the renderer margin so every column starts on the same
-  // edge. Row bands are taller than the generic rhythm because a table row is
-  // text a reader has to scan, not a node label.
+  // The top origin leaves room for a domain caption above the first band, and
+  // the left origin starts the first column inside the page margin so the
+  // canvas is not edge-to-edge. Row bands are taller than the generic rhythm
+  // because a table row is text a reader has to scan, not a node label.
   origin: [32, 40],
   gapX: 56,
   gapY: 44,

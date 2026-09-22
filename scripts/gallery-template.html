@@ -309,11 +309,12 @@
           <div class="method-code-bar"><span>reproduce locally</span><span>zero runtime deps</span></div>
           <pre><span class="accent">$ node scripts/build-gallery.mjs</span>
 
-render  workflow      ✓
-render  sequence      ✓
-render  dataflow      ✓
-render  lifecycle     ✓
-render  architecture  ✓
+render  workflow       ✓
+render  sequence       ✓
+render  dataflow       ✓
+render  lifecycle      ✓
+render  architecture   ✓
+render  erd            ✓
 
 receipt [[CHECK_COUNT]] checks / [[ENTRY_COUNT]] artifacts / deterministic hashes</pre>
         </div>
@@ -383,7 +384,7 @@ receipt [[CHECK_COUNT]] checks / [[ENTRY_COUNT]] artifacts / deterministic hashe
       document.getElementById('language').addEventListener('click', function () { applyLanguage(language === 'en' ? 'zh' : 'en'); });
       document.getElementById('preview-theme').addEventListener('click', function () { applyPreviewTheme(previewTheme === 'dark' ? 'light' : 'dark'); });
 
-      var allowed = ['architecture', 'workflow', 'sequence', 'dataflow', 'lifecycle'];
+      var allowed = ['architecture', 'workflow', 'sequence', 'dataflow', 'lifecycle', 'erd'];
       var requested = new URLSearchParams(location.search).get('type') || 'all';
       applyFilter(allowed.indexOf(requested) >= 0 ? requested : 'all', false);
       applyLanguage(language);
