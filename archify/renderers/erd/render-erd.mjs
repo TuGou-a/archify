@@ -315,7 +315,7 @@ const bandKey = (entity) => (
     : `p${Math.round(entity.x || 0)},${Math.round(entity.y || 0)}`
 );
 
-const { ports, pathFor, connectionSides, connectionEndpointSide } = createRouter(entities, relationships, {
+const { ports, pathFor, inferredSides, connectionEndpointSide } = createRouter(entities, relationships, {
   // Horizontal-first, like every other non-architecture type: a relationship
   // leaves and enters on the left/right when the tables sit side by side and
   // only falls back to a top/bottom port when they share a column. The shared
@@ -329,7 +329,11 @@ const { ports, pathFor, connectionSides, connectionEndpointSide } = createRouter
     return endpoint === 'source' ? legacyDefaultFromSide(from, to) : legacyDefaultToSide(from, to);
   },
   preferredCandidates: (context) => [...trunkCandidates(context), ...laneCandidates(context)],
-  extraCandidates: (context) => [...detourCandidates(context), ...outsideCandidates(context)],
+  // A bundled trunk is drawn as one bus path and the trunk stretch is removed
+  // from each branch's drawn route, so the router's rhythm floors — which
+  // describe a route drawn exactly as planned — do not describe what this
+  // renderer draws. The composition gate still measures the drawn result.
+  compositionFloors: false,
   // A cardinality glyph is 14 units tall, so ports must clear it (see
   // ERD_PORT_SPACING, which the trunk bridge is derived from).
   portSpacing: ERD_PORT_SPACING,
@@ -339,7 +343,7 @@ function corridorKey(relationship) {
   const from = entities.get(relationship.from);
   const to = entities.get(relationship.to);
   if (!from || !to) return null;
-  const { fromSide, toSide } = connectionSides(relationship);
+  const { fromSide, toSide } = inferredSides(relationship);
   const horizontalPorts = (fromSide === 'left' || fromSide === 'right');
   const verticalPorts = (fromSide === 'top' || fromSide === 'bottom');
   if (horizontalPorts === verticalPorts) return null;
@@ -419,7 +423,7 @@ const trunkAssignments = new Map();
   };
   for (const [index, relationship] of relationships.entries()) {
     if (!relationshipAutoRouted(relationship)) continue;
-    const { fromSide, toSide } = connectionSides(relationship);
+    const { fromSide, toSide } = inferredSides(relationship);
     resolvedSides.set(relationship, { fromSide, toSide });
     const styleKey = markerStyleOf(relationship);
     push(fanIn, `${relationship.to}\u0000${toSide}\u0000${styleKey}`, { index, relationship });
@@ -674,69 +678,6 @@ function laneCandidates(context) {
   if (!channel) return [];
   const base = (context.start[channel.axis] + context.end[channel.axis]) / 2;
   return [channel.toPoints(base + lane * LANE_STEP)];
-}
-
-// A third entity between two aligned anchors blocks every shared candidate
-// family, because each one runs along the same line. These U-shaped detours
-// leave the source side, run along a line that clears the obstacle, and enter
-// the target from its own side. They are only consulted after the shared
-// families fail, so an unobstructed schema keeps its ordinary routes.
-const DETOUR_CLEARANCE = 16;
-const DETOUR_LEG = 12;
-
-function detourCandidates({ conn, start, end, fromSide, toSide }) {
-  const horizontalPorts = fromSide === 'left' || fromSide === 'right';
-  const verticalPorts = fromSide === 'top' || fromSide === 'bottom';
-  if (horizontalPorts === verticalPorts) return [];
-  const travel = horizontalPorts ? 0 : 1;
-  const cross = 1 - travel;
-  const travelLow = Math.min(start[travel], end[travel]);
-  const travelHigh = Math.max(start[travel], end[travel]);
-  const crossLow = Math.min(start[cross], end[cross]);
-  const crossHigh = Math.max(start[cross], end[cross]);
-
-  const offsets = new Set();
-  for (const entity of entities.values()) {
-    if (entity.id === conn.from || entity.id === conn.to) continue;
-    const boxTravelLow = travel === 0 ? entity.x : entity.y;
-    const boxTravelHigh = boxTravelLow + (travel === 0 ? entity.width : entity.height);
-    if (boxTravelHigh <= travelLow || boxTravelLow >= travelHigh) continue;
-    const boxCrossLow = cross === 0 ? entity.x : entity.y;
-    const boxCrossHigh = boxCrossLow + (cross === 0 ? entity.width : entity.height);
-    if (boxCrossHigh <= crossLow || boxCrossLow >= crossHigh) continue;
-    offsets.add(boxCrossLow - DETOUR_CLEARANCE);
-    offsets.add(boxCrossHigh + DETOUR_CLEARANCE);
-  }
-  if (!offsets.size) return [];
-
-  const point = (travelValue, crossValue) => (travel === 0 ? [travelValue, crossValue] : [crossValue, travelValue]);
-  const startDirection = horizontalPorts
-    ? (fromSide === 'right' ? 1 : -1)
-    : (fromSide === 'bottom' ? 1 : -1);
-  const endDirection = horizontalPorts
-    ? (toSide === 'left' ? -1 : 1)
-    : (toSide === 'top' ? -1 : 1);
-  const startLeg = start[travel] + startDirection * DETOUR_LEG;
-  const endLeg = end[travel] + endDirection * DETOUR_LEG;
-
-  return [...offsets]
-    .sort((left, right) => Math.abs(left - start[cross]) - Math.abs(right - start[cross]))
-    .map((offset) => [
-      point(startLeg, start[cross]),
-      point(startLeg, offset),
-      point(endLeg, offset),
-      point(endLeg, end[cross]),
-    ]);
-}
-
-function outsideCandidates(context) {
-  const channel = channelFallback(context);
-  if (!channel) return [];
-  const reach = LANE_STEP * 2;
-  return [
-    channel.toPoints(channel.high + reach),
-    channel.toPoints(channel.low - reach),
-  ];
 }
 
 // ---- Validation --------------------------------------------------------------

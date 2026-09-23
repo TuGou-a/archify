@@ -28,6 +28,35 @@ import {
 } from '../shared/geometry.mjs';
 import { shortestOrthogonalGridRoute } from '../shared/route-quality.mjs';
 
+// A route may touch its own endpoints (they are its source and target) but must
+// not re-enter them: the first segment may leave from the source and the last
+// may arrive at the target, nothing else.
+function routeClearsEndpointComponents(points, from, to) {
+  const lastSegment = points.length - 2;
+  for (let index = 0; index <= lastSegment; index += 1) {
+    const segment = { start: points[index], end: points[index + 1] };
+    if (index > 0 && segmentIntersectsRect(segment, from)) return false;
+    if (index < lastSegment && segmentIntersectsRect(segment, to)) return false;
+  }
+  return true;
+}
+
+// Clearance from the components a route is not attached to. Module level so the
+// closure below can add its reserved-label rule without reimplementing the
+// segment test.
+function routeClearsComponents(conn, points, components, clearance = 2) {
+  const endpointIds = new Set([conn.from, conn.to]);
+  for (const component of components.values()) {
+    if (endpointIds.has(component.id)) continue;
+    for (let index = 0; index < points.length - 1; index += 1) {
+      if (segmentIntersectsRect({ start: points[index], end: points[index + 1] }, component, clearance)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /**
  * Router bound to one set of measured component boxes.
  *
@@ -52,8 +81,13 @@ import { shortestOrthogonalGridRoute } from '../shared/route-quality.mjs';
  * @param {(context: {conn: object, from: object, to: object, start: number[], end: number[], fromSide: string, toSide: string}) => number[][][]} [options.preferredCandidates]
  *   candidate families tried before the shared ones, so a type-owned corridor
  *   (a bundled trunk, a dedicated lane) wins over the generic midpoint
- * @param {(context: object) => number[][][]} [options.extraCandidates]
- *   candidate families tried after the shared ones and before the obstacle grid
+ * @param {boolean} [options.compositionFloors = true] hold every automatic
+ *   route to the rhythm floors the showcase gate enforces, so the planner never
+ *   accepts a route the gate will reject. A type that draws a route differently
+ *   from its logical points (the erd renderer removes the bundled trunk stretch
+ *   from each branch and draws the bus as one path) turns this off: the floors
+ *   describe the drawn route, and that type answers for the drawn result at its
+ *   own gate instead.
  */
 export function createRouter(components, connections, {
   frames = [],
@@ -63,7 +97,7 @@ export function createRouter(components, connections, {
   sideFor = null,
   portSpacing = null,
   preferredCandidates = null,
-  extraCandidates = null,
+  compositionFloors = true,
 } = {}) {
   const frameBorders = frames.flatMap((frame) => frameBorderSegments(frame));
   const LABEL_CLEARANCE = 4;
@@ -101,7 +135,8 @@ export function createRouter(components, connections, {
   // gate enforces afterwards. Accepting a route here that the gate rejects
   // only hands the author a hand-routing repair the planner could have made.
   function routeMeetsCompositionFloors(points) {
-    if (collectRouteRhythmIssues({ routedRelations: [{ points }], interiorSegmentPx, microSegmentPx }).length) {
+    if (compositionFloors
+        && collectRouteRhythmIssues({ routedRelations: [{ points }], interiorSegmentPx, microSegmentPx }).length) {
       return false;
     }
     return !frames.length || collectBorderRuns({ routedRelations: [{ points }], frames }).length === 0;
@@ -125,28 +160,11 @@ export function createRouter(components, connections, {
   };
 
   // ---- Connection routing ------------------------------------------------------
-  function routeClearsComponents(conn, points, clearance = 2) {
-    const endpointIds = new Set([conn.from, conn.to]);
-    for (const component of components.values()) {
-      if (endpointIds.has(component.id)) continue;
-      for (let index = 0; index < points.length - 1; index += 1) {
-        if (segmentIntersectsRect({ start: points[index], end: points[index + 1] }, component, clearance)) {
-          return false;
-        }
-      }
-    }
-    return routeClearsReservedLabels(conn, points);
+  function clearsScene(conn, points, clearance = 2) {
+    return routeClearsComponents(conn, points, components, clearance)
+      && routeClearsReservedLabels(conn, points);
   }
 
-  function routeClearsEndpointComponents(points, from, to) {
-    const lastSegment = points.length - 2;
-    for (let index = 0; index <= lastSegment; index += 1) {
-      const segment = { start: points[index], end: points[index + 1] };
-      if (index > 0 && segmentIntersectsRect(segment, from)) return false;
-      if (index < lastSegment && segmentIntersectsRect(segment, to)) return false;
-    }
-    return true;
-  }
 
   function relationshipsShareEndpoint(left, right) {
     return left.from === right.from
@@ -390,7 +408,7 @@ export function createRouter(components, connections, {
           && portHasCornerClearance(to, toSide, candidate.end)
           && routeHonorsEndpointSides(points, fromSide, toSide)
           && routeClearsEndpointComponents(points, from, to)
-          && routeClearsComponents(conn, points)) {
+          && clearsScene(conn, points)) {
         return candidate;
       }
     }
@@ -422,7 +440,7 @@ export function createRouter(components, connections, {
             const points = [start, ...candidate, end];
             if (routeHonorsEndpointSides(points, fromSide, toSide)
                 && routeClearsEndpointComponents(points, from, to)
-                && routeClearsComponents(conn, points)
+                && clearsScene(conn, points)
                 && routeMeetsCompositionFloors(points)
                 && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
           }
@@ -435,7 +453,7 @@ export function createRouter(components, connections, {
           const direct = [start, end];
           if (routeHonorsEndpointSides(direct, fromSide, toSide)
               && routeClearsEndpointComponents(direct, from, to)
-              && routeClearsComponents(conn, direct)
+              && clearsScene(conn, direct)
               && routeMeetsCompositionFloors(direct)
               && !routeConflictsWithResolved(conn, direct, resolvedRoutes)) return [];
         }
@@ -443,7 +461,7 @@ export function createRouter(components, connections, {
         const rhythmBridge = automaticPortRhythmBridge(start, end, fromSide, toSide, {
           accept: (points) => (
             routeClearsEndpointComponents(points, from, to)
-            && routeClearsComponents(conn, points)
+            && clearsScene(conn, points)
             && routeMeetsCompositionFloors(points)
             && !routeConflictsWithResolved(conn, points, resolvedRoutes)
           ),
@@ -466,7 +484,7 @@ export function createRouter(components, connections, {
             const candidate = [[channelX, start[1]], [channelX, end[1]]];
             const points = [start, ...candidate, end];
             if (routeHonorsEndpointSides(points, fromSide, toSide)
-                && routeClearsComponents(conn, points)
+                && clearsScene(conn, points)
                 && routeMeetsCompositionFloors(points)
                 && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
           }
@@ -483,7 +501,7 @@ export function createRouter(components, connections, {
             const candidate = [[start[0], channelY], [end[0], channelY]];
             const points = [start, ...candidate, end];
             if (routeHonorsEndpointSides(points, fromSide, toSide)
-                && routeClearsComponents(conn, points)
+                && clearsScene(conn, points)
                 && routeMeetsCompositionFloors(points)
                 && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
           }
@@ -513,24 +531,9 @@ export function createRouter(components, connections, {
         for (const candidate of ordered) {
           const points = [start, ...candidate, end];
           if (routeClearsEndpointComponents(points, from, to)
-              && routeClearsComponents(conn, points)
+              && clearsScene(conn, points)
               && routeMeetsCompositionFloors(points)
               && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
-        }
-
-        // A type may supply its own candidate family for the cases the shared
-        // families cannot take. It runs only after they fail, so an ordinary
-        // diagram keeps its exact routing while a denser one still gets a
-        // legal route instead of a gate failure.
-        if (extraCandidates) {
-          for (const candidate of extraCandidates({ conn, from, to, start, end, fromSide, toSide }) || []) {
-            const points = [start, ...candidate, end];
-            if (routeHonorsEndpointSides(points, fromSide, toSide)
-                && routeClearsEndpointComponents(points, from, to)
-                && routeClearsComponents(conn, points)
-                && routeMeetsCompositionFloors(points)
-                && !routeConflictsWithResolved(conn, points, resolvedRoutes)) return candidate;
-          }
         }
 
         // Two-bend doglegs are deliberately cheap, but a real architecture can
@@ -580,7 +583,7 @@ export function createRouter(components, connections, {
         const clearsEndpoints = searched
           ? routeClearsEndpointComponents(searched.points, from, to) : false;
         const clearsComponents = searched
-          ? routeClearsComponents(conn, searched.points) : false;
+          ? clearsScene(conn, searched.points) : false;
         const clearsRelationships = searched
           ? !routeConflictsWithResolved(conn, searched.points, resolvedRoutes) : false;
         const clearsSharedCorridors = searched
@@ -640,6 +643,14 @@ export function createRouter(components, connections, {
   function connectionSides(conn) {
     if (!routesPlanned && !routesPlanning) planRoutes();
     return selectedSides.get(conn) || inferredConnectionSides(conn);
+  }
+
+  // The same side inference without the planning pass. A type that must group
+  // relationships before any route exists (the erd renderer assigns a shared
+  // trunk per fan-in) reads its sides here: calling connectionSides from that
+  // pass would plan routes, and planning asks the grouping what the trunks are.
+  function inferredSides(conn) {
+    return inferredConnectionSides(conn);
   }
 
   function connectionEndpointSide(conn, endpoint) {
@@ -737,7 +748,7 @@ export function createRouter(components, connections, {
     return routed.points.length >= 2
       && routeHonorsEndpointSides(routed.points, geometry.fromSide, geometry.toSide)
       && routeClearsEndpointComponents(routed.points, geometry.from, geometry.to)
-      && routeClearsComponents(conn, routed.points)
+      && clearsScene(conn, routed.points)
       && routeMeetsCompositionFloors(routed.points)
       && !routeOverlapsResolved(conn, routed.points, resolvedRoutes);
   }
@@ -836,5 +847,5 @@ export function createRouter(components, connections, {
     return { ...planningMetrics };
   }
 
-  return { ports: automaticPorts, pathFor, connectionSides, connectionEndpointSide, routingMetrics };
+  return { ports: automaticPorts, pathFor, connectionSides, inferredSides, connectionEndpointSide, routingMetrics };
 }
