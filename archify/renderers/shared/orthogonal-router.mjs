@@ -5,10 +5,11 @@
 //
 // A type that owns diagram-specific geometry adds it through options instead of
 // copying the router: `sideFor` biases the inferred endpoint sides,
-// `portSpacing` widens the automatic port spread, and
-// `preferredCandidates`/`extraCandidates` contribute candidate families that
-// run before or after the shared ones. Every option is inert when omitted, so a
-// caller that passes none keeps the architecture routing exactly.
+// `portSpacing` widens the automatic port spread, `preferredCandidates`
+// contributes a candidate family that runs before the shared ones, and
+// `compositionFloors` states whether the rhythm floors describe the route this
+// type ends up drawing. Every option is inert when omitted, so a caller that
+// passes none keeps the architecture routing exactly.
 
 import {
   segmentIntersectsRect,

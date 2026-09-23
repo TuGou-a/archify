@@ -11,9 +11,14 @@ export const DEFAULT_ER_GRID = {
   origin: [32, 40],
   gapX: 56,
   gapY: 44,
-  entityW: 220,
-  headerH: 28,
-  rowH: 18,
+  // Wide enough for a long field name plus its SQL type at the legibility
+  // sizes below (a 20-character name and a numeric(12,2) type).
+  entityW: 240,
+  // Header and row bands are sized for the field type legibility the reader
+  // asked for: an 11-unit field name and a 10.5-unit type sit on a 20-unit
+  // row, and the table name leads them on a 30-unit header.
+  headerH: 30,
+  rowH: 20,
 };
 
 export function erGridLayout(er) {

@@ -40,7 +40,9 @@
     ]
   },
   "layout": {
-    "mode": "grid"
+    "mode": "grid",
+    "gapY": 38,
+    "gapX": 72
   },
   "entities": [
     {
@@ -117,7 +119,7 @@
       "tag": "line items",
       "row": 1,
       "col": 2,
-      "width": 240,
+      "width": 254,
       "attributes": [
         {
           "name": "id",
@@ -223,7 +225,8 @@
           "name": "updated_at",
           "type": "timestamptz"
         }
-      ]
+      ],
+      "width": 236
     },
     {
       "id": "payment",

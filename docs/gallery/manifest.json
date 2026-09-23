@@ -1458,10 +1458,10 @@
       "engineeringProfile": null,
       "nodeCount": 6,
       "edgeCount": 5,
-      "artifactBytes": 829207,
-      "artifactSha256": "73259ca2076e089a2369b4cd9991d01ad199bb485ac9b4fc1f2e2482d87aa4cf",
-      "sourceBytes": 7269,
-      "sourceSha256": "32a253021e7491202d5d4d05c5eb2e7ac0267ed45727674efbbb1f34af5fd845",
+      "artifactBytes": 843987,
+      "artifactSha256": "1aac186b764d4d80f8e727d9f841f551f61ab415d74684e658b008f8b230bcc7",
+      "sourceBytes": 7321,
+      "sourceSha256": "1777a374647084466f4d7ce3a968004be6ab70ac9cf82459b96bed7c556cdfdd",
       "checks": [
         {
           "name": "single_svg",
@@ -1510,19 +1510,21 @@
         },
         "metrics": {
           "properCrossings": 0,
+          "resolvedCrossovers": 0,
           "ambiguousCorridors": 0,
           "containerBorderRuns": 0,
           "labelRouteClearanceIssues": 0,
           "labelCanvasOverflowIssues": 0,
-          "minLabelRouteClearance": 214.5,
+          "minLabelRouteClearance": 225,
           "desktopReadabilityIssues": 0,
-          "minProjectedNodeTextPx": null,
+          "viewportHeightIssues": 0,
+          "minProjectedNodeTextPx": 8.383647798742139,
           "maxBends": 2,
           "routesOverSuggestedBends": 0,
           "maxStretch": 1,
           "routesOverSuggestedStretch": 0,
           "minSegmentPx": 16,
-          "minInteriorSegmentPx": 27,
+          "minInteriorSegmentPx": 30,
           "shortSegmentCount": 0,
           "shortEndpointSegmentCount": 0,
           "shortInteriorSegmentCount": 0,
@@ -1533,6 +1535,27 @@
           "stretch": 1.35,
           "segmentPx": 16,
           "microSegmentPx": 8
+        },
+        "desktopReadability": {
+          "budgetBasis": "recognized-declared-wide",
+          "readerContract": "declared-wide-v1",
+          "availableDiagramWidth": 930,
+          "actualBudgetPx": 930,
+          "actualReaderWidth": 960,
+          "desiredReaderWidth": 960,
+          "viewportCap": 1376,
+          "limit": "source-size",
+          "requestedTargetPx": 7.5,
+          "requestedTargetMet": true,
+          "hardFloorPx": 6,
+          "hardFloorMet": true,
+          "minimumOwner": {
+            "kind": "node",
+            "id": "order_item"
+          },
+          "minimumSourceTextPx": 8.6,
+          "minimumProjectedTextPx": 8.383647798742139,
+          "semanticTextCount": 94
         },
         "issues": []
       }

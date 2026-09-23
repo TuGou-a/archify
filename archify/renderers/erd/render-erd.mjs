@@ -14,6 +14,7 @@ import {
 import { throwDiagnosticProblems } from '../shared/diagnostics.mjs';
 import {
   legendFootprint,
+  measureLegend,
   relationshipLegendObstacles,
   resolveLegend,
   renderLegend as renderResolvedLegend,
@@ -68,18 +69,18 @@ const grid = erGridLayout(er);
 
 const layout = {
   margin: 24,
-  legendH: 32,
+  legendH: 34,
   padX: 12,
-  keyWidth: 28,
-  keyFont: 8,
-  headerFont: 12,
-  headerFontMinimum: 9,
-  rowFont: 10,
-  rowFontMinimum: 8,
-  typeFont: 9,
-  typeFontMinimum: 8,
-  detailPreferred: 9,
-  detailMinimum: 7,
+  keyWidth: 30,
+  keyFont: 9,
+  headerFont: 13,
+  headerFontMinimum: 10,
+  rowFont: 11,
+  rowFontMinimum: 9,
+  typeFont: 10.5,
+  typeFontMinimum: 9,
+  detailPreferred: 10,
+  detailMinimum: 8,
   minRelationshipLength: 24,
 };
 
@@ -209,25 +210,32 @@ function cardinalityMarkerId(relationship, endpoint) {
   return `er-${cardinality}${optional}-${endpoint === 'from' ? 'start' : 'end'}`;
 }
 
-// Crow's foot notation: the symbol touches the entity, so the marker's vertex
-// sits on the path endpoint and the toes spread back along the relationship.
+// Crow's foot notation: the foot opens toward the entity whose cardinality it
+// describes. The toes touch that entity at the path endpoint and the apex sits
+// one foot back along the relationship, so the glyph reads as "many rows here"
+// rather than as an arrowhead pointing away from the table it describes.
 // `start` markers are mirrored because an oriented marker's +x axis points
 // along the path direction, which leaves the from-endpoint heading outward.
 // The glyph is drawn in the muted text ink rather than the shared arrow token:
 // at the light theme's arrow colour a crow's foot over a table fill sits near
 // 2:1 contrast and reads as a smudge.
 //
-// The optionality ring sits past the toes rather than inside them. Both facts
-// are about the same end, so a ring centred on the foot would be bisected by
-// its middle toe and read as one muddy shape instead of "zero or many".
+// The optionality ring sits past the apex rather than inside the toes. Both
+// facts are about the same end, so a ring centred on the foot would be
+// bisected by its middle toe and read as one muddy shape instead of
+// "zero or many".
 const MARKER_GLYPH_WIDTH = 24;
-const MARKER_VERTEX_X = 22;
+const MARKER_TOE_X = 22;
+const MARKER_APEX_X = 8;
 const MARKER_CIRCLE_X = 3.5;
+// The glyph spans y 1..15, so two ports closer than this draw overlapping
+// symbols and the side reads as one lattice instead of N cardinalities.
+const MARKER_HEIGHT = 14;
 function cardinalityMarkerMarkup(id, { cardinality, optional, mirror }) {
-  const flip = (x) => (mirror ? MARKER_VERTEX_X - x : x);
+  const flip = (x) => (mirror ? MARKER_TOE_X - x : x);
   const parts = [];
   if (cardinality === 'many') {
-    parts.push(`<path d="M ${flip(MARKER_VERTEX_X)} 8 L ${flip(8)} 1 M ${flip(MARKER_VERTEX_X)} 8 L ${flip(8)} 8 M ${flip(MARKER_VERTEX_X)} 8 L ${flip(8)} 15"/>`);
+    parts.push(`<path d="M ${flip(MARKER_APEX_X)} 8 L ${flip(MARKER_TOE_X)} 1 M ${flip(MARKER_APEX_X)} 8 L ${flip(MARKER_TOE_X)} 8 M ${flip(MARKER_APEX_X)} 8 L ${flip(MARKER_TOE_X)} 15"/>`);
   } else {
     parts.push(`<path d="M ${flip(17)} 1 L ${flip(17)} 15"/>`);
   }
@@ -238,7 +246,7 @@ function cardinalityMarkerMarkup(id, { cardinality, optional, mirror }) {
     parts.push(`<circle cx="${flip(MARKER_CIRCLE_X)}" cy="8" r="2.6" class="c-mask"/>`);
     parts.push(`<circle cx="${flip(MARKER_CIRCLE_X)}" cy="8" r="2.6"/>`);
   }
-  const refX = mirror ? 0 : MARKER_VERTEX_X;
+  const refX = mirror ? 0 : MARKER_TOE_X;
   return `          <marker id="${esc(id)}" markerWidth="${MARKER_GLYPH_WIDTH}" markerHeight="18" refX="${refX}" refY="8" orient="auto" markerUnits="userSpaceOnUse" class="a-default" style="stroke: var(--text-muted)" stroke-width="1.75">
             ${parts.join('\n            ')}
           </marker>`;
@@ -281,6 +289,32 @@ for (const relationship of relationships) {
 }
 const erLegendEntries = resolveLegend(er.meta?.legend, LEGEND_CATALOG, presentKinds);
 
+// The reserved legend band: its baseline sits this far above the canvas bottom,
+// and its labels are set at this size. Both are part of the band's footprint.
+const LEGEND_BASELINE_GAP = 16;
+const LEGEND_FONT_SIZE = 10;
+
+// One layout object for the reserved legend band, shared by the sizing probe
+// and the render call so the drawing area is never sized against a different
+// strip than the one the legend is placed into.
+function legendLayout(width, height, { obstacles = [], unfit = 'error' } = {}) {
+  const contentBottom = Math.max(0, ...[...entities.values()].map((entity) => entity.y + entity.height));
+  return {
+    x: layout.margin,
+    baselineY: height - LEGEND_BASELINE_GAP,
+    width: width - layout.margin * 2,
+    fontSize: LEGEND_FONT_SIZE,
+    minTitleY: contentBottom + 8,
+    obstacles,
+    unfit,
+    diagramType: 'erd',
+  };
+}
+
+// The default legend is part of the generated content, so the drawing area is
+// sized to hold it: a reserved strip that is a few units short grows the
+// canvas instead of dropping the key. An authored `meta.viewBox` is a fixed
+// area, and there the same measurement raises the capacity diagnostic.
 function autoViewBox() {
   const maxX = Math.max(0, ...[...entities.values()].map((entity) => entity.x + entity.width));
   const maxY = Math.max(0, ...[...entities.values()].map((entity) => entity.y + entity.height));
@@ -290,12 +324,21 @@ function autoViewBox() {
     width = Math.ceil(footprint.minWidth + layout.margin * 2);
     footprint = legendFootprint(erLegendEntries, { width: width - layout.margin * 2 });
   }
-  const height = Math.ceil(maxY + layout.margin + layout.legendH + footprint.extraHeight);
+  let height = Math.ceil(maxY + layout.margin + layout.legendH + footprint.extraHeight);
+  // The shared measurement decides whether the strip fits; each attempt adds a
+  // whole band, so the loop ends after at most a few rounds.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (measureLegend(erLegendEntries, legendLayout(width, height, { unfit: 'hide' }))) break;
+    height += layout.legendH;
+  }
   return [width, height];
 }
 
+// The legends are measured before routing exists (this runs at module load), so
+// the probe covers the sizing failure modes — label width and band height. A
+// route or label that later collides with the placed band is a real capacity
+// failure and keeps its diagnostic.
 const viewBox = Array.isArray(er.meta?.viewBox) ? er.meta.viewBox : autoViewBox();
-const legendY = () => viewBox[1] - 16;
 
 // ---- Routing -----------------------------------------------------------------
 // Relationships that would share one corridor get a deterministic lane each, so
@@ -303,6 +346,21 @@ const legendY = () => viewBox[1] - 16;
 // preference: a lane that breaks the endpoint contract or hits an entity is
 // skipped and the shared candidate families run unchanged.
 const LANE_STEP = 12;
+
+// A relationship label is semantic data and the smallest text the diagram
+// carries: at the shared 8-unit default it projects to ~7.0px on a tall canvas,
+// under the 7.5px the canvas declares.
+const RELATIONSHIP_LABEL_FONT = 9;
+// The label's advance is measured from that size, not from a literal: the mask
+// the renderer draws, the rect the layout checks measure, and the obstacle the
+// legend measures must be the same rectangle, or a label can sit on a table edge
+// with no diagnostic (the checks would be measuring a narrower box than the ink).
+const RELATIONSHIP_LABEL_ADVANCE = 0.62;
+function relationshipLabelBox(relationship) {
+  const [lx, ly] = erLabelPoint(relationship);
+  const width = Math.max(30, textUnits(relationship.label) * RELATIONSHIP_LABEL_FONT * RELATIONSHIP_LABEL_ADVANCE + 10);
+  return { x: lx - width / 2, y: ly - 10, width, height: 14 };
+}
 
 // A cardinality glyph is 14 units tall, so two relationships leaving the same
 // table side must sit at least this far apart: the shared 14px spread put them
@@ -768,6 +826,42 @@ function validateEr() {
     }
   }
 
+  // A busy fan-in can leave less room than a glyph is tall. The marker spread
+  // is a cap, not a floor: `automaticPortSpread` spaces a side by
+  // `min(maxSpacing, (extent - 2 x gutter) / (n - 1))`, so a short table with
+  // several relationships draws overlapping feet and bars. The gate cannot see
+  // that (the routes are legal), so the renderer names it here.
+  const portSpacingDetails = [];
+  for (const [entityId, entity] of entities) {
+    const sides = new Map();
+    for (const relationship of relationships) {
+      if (!relationshipAutoRouted(relationship)) continue;
+      const { fromSide, toSide } = inferredSides(relationship);
+      if (relationship.from === entityId) sides.set(fromSide, (sides.get(fromSide) || 0) + 1);
+      if (relationship.to === entityId) sides.set(toSide, (sides.get(toSide) || 0) + 1);
+    }
+    for (const [side, count] of sides) {
+      if (count < 2) continue;
+      const extent = side === 'left' || side === 'right' ? entity.height : entity.width;
+      const spacing = Math.min(ERD_PORT_SPACING, Math.max(0, extent - 32) / (count - 1));
+      if (spacing >= MARKER_HEIGHT) continue;
+      const message = `Entity "${entityId}" shares its ${side} side with ${count} relationship ends: their ports would sit ${Math.round(spacing)}px apart, under the ${MARKER_HEIGHT}px a cardinality glyph is tall, so the symbols overlap. Give the table more rows so that side is taller, spread the relationships across sides with room, or reduce the fan-in.`;
+      problems.push(message);
+      portSpacingDetails.push({
+        code: 'layout/marker-capacity',
+        severity: 'error',
+        message,
+        subject: { diagramType: 'erd', path: `/entities/${entityId}` },
+        evidence: { entity: entityId, side, relationshipEnds: count, spacingPx: Math.round(spacing), markerHeightPx: MARKER_HEIGHT, sideExtentPx: extent },
+        supportedFixes: [
+          `add fields to "${entityId}" so its ${side} side is taller`,
+          'spread the relationships across the sides that have room',
+          'reduce the fan-in by modelling the shared parent instead of pointing every child at this table',
+        ],
+      });
+    }
+  }
+
   problems.push(...cleanEndpointSideProblems({
     relations: relationships,
     endpointIds: new Set(entities.keys()),
@@ -819,15 +913,11 @@ function validateEr() {
   for (const [index, relationship] of relationships.entries()) {
     if (!relationship.label || !renderableRelationship(relationship)) continue;
     const [lx, ly] = erLabelPoint(relationship);
-    const width = Math.max(30, textUnits(relationship.label) * 4.8 + 10);
     labelRects.push({
       relation: relationship,
       relationIndex: index,
       label: relationship.label,
-      x: lx - width / 2,
-      y: ly - 10,
-      width,
-      height: 14,
+      ...relationshipLabelBox(relationship),
       lx,
       ly,
     });
@@ -852,6 +942,7 @@ function validateEr() {
     throwDiagnosticProblems('Entity-relationship layout validation failed', problems, {
       code: 'layout/constraint',
       subject: { diagramType: 'erd' },
+      diagnostics: portSpacingDetails,
     });
   }
 }
@@ -877,8 +968,12 @@ function renderEntityColumnRows(entity) {
   return entity.attributes.map((attribute, index) => {
     const rowTop = entity.y + metrics.headerH + index * metrics.rowH;
     const baseline = rowTop + metrics.rowH - 5;
+    // The row carries `data-detail="context"` as a group, and each text repeats
+    // it: the Viewer's reader sizes the diagram from the texts that declare the
+    // level themselves, so a field that is only context inside a group would be
+    // shrunk past the readable floor on a tall schema.
     const keyGlyph = attribute.key
-      ? `<text x="${entity.x + layout.padX}" y="${baseline}" class="${KEY_ACCENT[attribute.key] || 't-muted'}" font-size="${layout.keyFont}" font-weight="600">${esc(attribute.key.toUpperCase())}</text>`
+      ? `<text data-detail="context" x="${entity.x + layout.padX}" y="${baseline}" class="${KEY_ACCENT[attribute.key] || 't-muted'}" font-size="${layout.keyFont}" font-weight="600">${esc(attribute.key.toUpperCase())}</text>`
       : '';
     const nameX = entity.x + layout.padX + layout.keyWidth;
     const typeSpace = attribute.type ? Math.min(96, textUnits(attribute.type) * layout.typeFont * nodeTextFit.widthFactor) : 0;
@@ -889,12 +984,12 @@ function renderEntityColumnRows(entity) {
       layout.rowFontMinimum,
     );
     const type = attribute.type
-      ? `<text x="${entity.x + entity.width - layout.padX}" y="${baseline}" class="t-muted" font-size="${layout.typeFont}" text-anchor="end">${esc(attribute.type)}</text>`
+      ? `<text data-detail="context" x="${entity.x + entity.width - layout.padX}" y="${baseline}" class="t-primary" font-size="${layout.typeFont}" text-anchor="end">${esc(attribute.type)}</text>`
       : '';
     return `          <g data-detail="context" data-er-row="${index}">
             <line x1="${entity.x}" y1="${rowTop}" x2="${entity.x + entity.width}" y2="${rowTop}" class="c-grid" stroke-width="0.5"/>
             ${keyGlyph}
-            <text x="${nameX}" y="${baseline}" class="t-primary" font-size="${nameFontSize}">${esc(attribute.name)}</text>
+            <text data-detail="context" x="${nameX}" y="${baseline}" class="t-primary" font-size="${nameFontSize}">${esc(attribute.name)}</text>
             ${type}
           </g>`;
   }).join('\n');
@@ -943,10 +1038,10 @@ function renderRelationshipPath(relationship, index) {
 function renderRelationshipLabel(relationship, index) {
   if (!relationship.label) return '';
   const [lx, ly] = erLabelPoint(relationship);
-  const width = Math.max(30, textUnits(relationship.label) * 4.8 + 10);
+  const box = relationshipLabelBox(relationship);
   return `        <g data-detail="context" ${focusEdgeAttrs(relationship.from, relationship.to, relationship.label, index, relationship.id)}>
-          <rect x="${lx - width / 2}" y="${ly - 10}" width="${width}" height="14" rx="3" class="c-mask"/>
-          <text x="${lx}" y="${ly}" class="${variantAccent(relationship.variant)}" font-size="8" text-anchor="middle">${esc(relationship.label)}</text>
+          <rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="3" class="c-mask"/>
+          <text x="${lx}" y="${ly}" class="${variantAccent(relationship.variant)}" font-size="${RELATIONSHIP_LABEL_FONT}" text-anchor="middle">${esc(relationship.label)}</text>
         </g>`;
 }
 
@@ -956,48 +1051,48 @@ function legendSwatch(entry) {
   const y = entry.baseline - 10;
   const ink = 'style="stroke: var(--text-muted)" stroke-width="1.75" fill="none"';
   if (entry.kind === 'one' || entry.kind === 'many') {
+    // The swatch repeats the marker's own orientation: the foot opens toward
+    // the side a table would sit on, so the legend teaches the glyph the
+    // relationship lines draw.
     const symbol = entry.kind === 'many'
-      ? `<path d="M ${entry.x + 18} ${y + 6} L ${entry.x + 2} ${y + 1} M ${entry.x + 18} ${y + 6} L ${entry.x + 2} ${y + 6} M ${entry.x + 18} ${y + 6} L ${entry.x + 2} ${y + 11}" ${ink}/>`
+      ? `<path d="M ${entry.x + 2} ${y + 6} L ${entry.x + 18} ${y + 1} M ${entry.x + 2} ${y + 6} L ${entry.x + 18} ${y + 6} M ${entry.x + 2} ${y + 6} L ${entry.x + 18} ${y + 11}" ${ink}/>`
       : `<path d="M ${entry.x + 10} ${y + 1} L ${entry.x + 10} ${y + 11}" ${ink}/>`;
     return symbol;
   }
   if (entry.kind === 'optional') {
     return `<circle cx="${entry.x + 9}" cy="${y + 6}" r="3" ${ink}/>`;
   }
-  return `<text x="${entry.x + 2}" y="${y + 10}" class="${KEY_ACCENT[entry.kind] || 't-muted'}" font-size="8.5" font-weight="700">${esc(entry.kind.toUpperCase())}</text>`;
+  return `<text x="${entry.x + 2}" y="${y + 10}" class="${KEY_ACCENT[entry.kind] || 't-muted'}" font-size="${layout.keyFont}" font-weight="700">${esc(entry.kind.toUpperCase())}</text>`;
 }
 
 function renderLegend() {
   const relationshipObstacles = relationshipLegendObstacles(relationships, {
     pointsFor: (relationship) => (renderableRelationship(relationship) ? pathFor(relationship).points : []),
-    labelRectFor: (relationship) => {
-      if (!relationship.label || !renderableRelationship(relationship)) return null;
-      const [x, y] = erLabelPoint(relationship);
-      const width = Math.max(30, textUnits(relationship.label) * 4.8 + 10);
-      return { x: x - width / 2, y: y - 10, width, height: 14 };
-    },
+    labelRectFor: (relationship) => (
+      relationship.label && renderableRelationship(relationship)
+        ? relationshipLabelBox(relationship)
+        : null
+    ),
   });
-  const contentBottom = Math.max(0, ...[...entities.values()].map((entity) => entity.y + entity.height));
   return renderResolvedLegend({
     entries: erLegendEntries,
     locale: er.meta.locale,
-    layout: {
-      x: layout.margin,
-      baselineY: legendY(),
-      width: viewBox[0] - layout.margin * 2,
-      fontSize: 9,
-      minTitleY: contentBottom + 8,
-      obstacles: relationshipObstacles,
-      unfit: er.meta?.legend === undefined ? 'hide' : 'error',
-      diagramType: 'erd',
-    },
+    layout: legendLayout(viewBox[0], viewBox[1], { obstacles: relationshipObstacles }),
     renderSwatch: legendSwatch,
+    labelClass: 't-primary',
     labelWeight: 600,
   });
 }
 
 function renderSvg() {
-  return `      <svg viewBox="0 0 ${viewBox[0]} ${viewBox[1]}" ${svgRootAttrs(er.meta)}>
+  // A schema with more tables than one screen holds is a normal ERD, and the
+  // reader asked for readable fields over a squeezed canvas: an automatic
+  // canvas declares its height as intrinsic so the desktop reader scrolls
+  // instead of shrinking the tables. An authored meta.viewBox stays
+  // authoritative and keeps the established Viewer contract.
+  const readerFit = er.meta?.viewBox ? '' : ' data-reader-fit="intrinsic-height"';
+  const readerMinimumText = er.meta?.viewBox ? '' : ' data-reader-min-text="7.5"';
+  return `      <svg viewBox="0 0 ${viewBox[0]} ${viewBox[1]}" ${svgRootAttrs(er.meta)}${readerFit}${readerMinimumText}>
 ${svgAccessibleText(er.meta, 'erd')}
 ${renderDefinitions(renderCardinalityDefs())}
 

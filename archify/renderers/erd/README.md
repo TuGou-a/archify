@@ -41,10 +41,13 @@ count, so the layout never needs hand-measured sizes. An attribute's `key` accep
 attributes.
 
 A relationship reads `from` -> `to` and is drawn with crow's foot notation at
-both ends. Both ends declare their own maximum: `fromCardinality`/`toCardinality`
-take `one` or `many` and are required, because a maximum the author never stated
-is a fact the diagram would be inventing; `fromOptional`/`toOptional` add the
-optional circle and lower that end's minimum from one to zero.
+both ends. The foot opens toward the entity whose cardinality it describes: its
+toes stand on that table's edge and its apex sits one foot back along the line,
+so the glyph cannot be read as an arrowhead pointing at the table. Both ends
+declare their own maximum: `fromCardinality`/`toCardinality` take `one` or
+`many` and are required, because a maximum the author never stated is a fact the
+diagram would be inventing; `fromOptional`/`toOptional` add the optional circle
+past the apex and lower that end's minimum from one to zero.
 `identifying: false` draws the non-identifying dashed line.
 
 ## Layout and routing
@@ -66,9 +69,12 @@ gate. Five differences are specific to this renderer:
   shared router's default is architecture's dominant-axis inference, which would
   split one fan-in into two groups whenever a target happened to sit further away
   vertically than horizontally.
-- Automatic ports on one side keep at least 24 units between them, because a
-  cardinality glyph is 14 units tall: at the shared 14-unit spread two crow's feet
-  on one table edge read as a single smudge.
+- Automatic ports on one side spread up to 24 units apart, because a cardinality
+  glyph is 14 units tall: at the shared 14-unit spread two crow's feet on one table
+  edge read as a single smudge. That spacing is a cap, not a floor — a side only
+  fits `(extent - 32) / (ends - 1)` — so a table with more relationship ends than
+  its side has room for fails with `layout/marker-capacity`, which names the
+  table, the side, the spacing, and the three ways out.
 - Relationships that would share one corridor get a deterministic lane offset,
   so parallel foreign keys never sit on the identical channel line.
 - Relationships that share one entity side (a fan-in of foreign keys, or a
@@ -81,8 +87,8 @@ gate. Five differences are specific to this renderer:
   (`route`, `via`, `labelAt`) keeps its own line. Logical routes still traverse
   the trunk, so every gate, label, and the layout report see the full geometry.
 - Entity boxes are opaque obstacles. When a third entity sits between two
-  aligned anchors, the renderer emits a U-shaped detour around it, and a route
-  that still cannot clear an unrelated entity fails with
+  aligned anchors, the shared obstacle grid routes around it, and a route that
+  still cannot clear an unrelated entity fails with
   `clean-flow/edge-through-node` rather than being drawn through the box.
 
 The renderer also reports ER-specific diagnostics: unknown entities in
@@ -114,13 +120,49 @@ repeats the same ink and stroke weight, and its labels render one step larger an
 heavier than the shared legend default, so the legend shows the reader the exact
 glyph the diagram draws.
 
+## The legend band
+
+The default legend is part of the generated content, so an automatic canvas is
+sized to hold it: the shared measurement decides whether the reserved strip
+fits, and the drawing area grows a band at a time until it does. A route or a
+relationship label that still collides with the placed band is a real capacity
+failure and raises the diagnostic instead of dropping the key, and an authored
+`meta.viewBox` — a fixed drawing area — names the capacity it lacks
+(`legend/vertical-overflow`, `legend/label-too-wide`, or `legend/content-overlap`,
+each with the fix that resolves it).
+
+A canvas taller than one screen is a normal schema, not a defect. An automatic
+canvas declares `data-reader-fit="intrinsic-height"` and
+`data-reader-min-text="7.5"`, so the Viewer scrolls it at a readable size instead
+of shrinking the tables; an authored `meta.viewBox` keeps the authored fit
+contract. Field rows, their types, and the key glyph carry
+`data-detail="context"` on the text itself, because the Viewer sizes the diagram
+from the texts that declare a level — a field that is only context inside a row
+group would be shrunk past the readable floor on a tall schema.
+
 ## Typography
 
 Table rows are text a reader scans, so the ERD's rhythm is looser than the generic
-diagram rhythm: a 28-unit header, 18-unit rows, and 8–12-unit type scaled to fit
-the declared width. A row whose text cannot fit is a diagnostic rather than a
-silently truncated cell, so a narrow table names the field it cannot show and asks
-for a wider box.
+diagram rhythm: a 30-unit header, 20-unit rows, a 13-unit table name, 11-unit
+field names, and a 10.5-unit type. The type keeps the same ink as the field name
+because it is data, not an aside: at the muted token it measured 3.98:1 against a
+table fill, under the 4.5:1 text floor, which is why it read as faint in review.
+A row whose text cannot fit is a diagnostic rather than a silently truncated
+cell, so a narrow table names the field it cannot show and asks for a wider box.
+
+Field rows, their types, and the key glyph each carry `data-detail="context"` on
+the text itself, not only on the row group: the Viewer's reader sizes the diagram
+from the texts that declare a level, so a tall schema would otherwise be shrunk
+past the readable floor. An automatic canvas also declares
+`data-reader-fit="intrinsic-height"`, which is what lets a schema taller than one
+screen scroll at a readable size instead of being squeezed to fit; an authored
+`meta.viewBox` keeps the authored fit contract.
+
+Relationship labels are set at 9 units in the relationship's own accent, with the
+mask measured from the same factor, so a labelled schema keeps its semantic text
+above the readable floor. They are the smallest text the diagram carries, and
+they are semantic data: a collision is a repair (move the label, widen the
+corridor), never a reason to drop the wording.
 
 ## Reading a schema
 

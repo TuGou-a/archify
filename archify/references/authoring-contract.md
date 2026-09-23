@@ -35,10 +35,13 @@ both. `visible: true` may show an unused supported convention, while
 A label override changes reader wording only. Never infer a kind from prose or
 use the legend to compensate for missing nodes, states, messages, or flows.
 Long labels are measured and wrap into deterministic rows. Architecture's
-implicit automatic viewBox grows from that same measured footprint. For
-backwards compatibility, a legacy document with no `meta.legend` may omit an
-implicit auto legend that cannot fit its explicit viewBox; this never changes
-its typed topology. Adding `meta.legend` makes the presentation intentional and
+implicit automatic viewBox grows from that same measured footprint, and an
+automatic ERD canvas is sized the same way so its default legend is always in
+the generated content. For backwards compatibility, a legacy document with no
+`meta.legend` may omit an implicit auto legend that cannot fit its explicit
+viewBox; this never changes its typed topology. An ERD that authors a
+`meta.viewBox` keeps that fixed area and reports the capacity instead of
+dropping the legend. Adding `meta.legend` makes the presentation intentional and
 strict: if its resolved labels cannot fit the authored viewBox, shorten or hide
 them, or widen the viewBox using the emitted diagnostic.
 
@@ -305,7 +308,24 @@ better. Use `row`/`col` for this normal grouped layout, and only use explicit
 
 Put one key per attribute (`key`) and the real references in `references`. A
 many-to-many pair is a real fact about the model, so state it and identify the join
-table when one exists.
+table when one exists. A relationship has two ends and each one declares its own
+maximum, so a `many`-to-`one` foreign key needs both `fromCardinality` and
+`toCardinality`; `fromOptional`/`toOptional` only lowers that same end's minimum
+from one to zero (an optional `one` end reads zero-or-one, an optional `many` end
+reads zero-or-many), and `identifying: false` draws the non-identifying dashed
+line. The foot opens toward the entity it describes, so the drawn glyph states the
+end's maximum, not a direction of travel.
+
+A table side only has room for so many ends: the ports spread at most `(side
+extent - 32) / (ends - 1)` apart, and a cardinality glyph is 14 units tall. More
+relationship ends than that room allows is `layout/marker-capacity`, which names
+the table, the side, and the ways out — add fields so the side is taller, spread
+the relationships, or reduce the fan-in. Never fix it by hiding the cardinality.
+
+An automatic canvas is sized to keep the default legend, and a schema taller than
+one screen scrolls at a readable size instead of being shrunk; see
+[`../renderers/erd/README.md`](../renderers/erd/README.md) for the band and
+reader contract.
 
 ### Lifecycle
 

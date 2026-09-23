@@ -13,6 +13,8 @@ const skillRoot = path.resolve(__dirname, '..');
 const renderer = path.join(skillRoot, 'renderers', 'erd', 'render-erd.mjs');
 const checker = path.join(skillRoot, 'scripts', 'check-render-output.mjs');
 const examplePath = path.join(skillRoot, 'examples', 'orders.erd.json');
+// One legend band plus the title gap a band has to clear below the content.
+const MARKER_FREE_BAND = 30;
 const example = JSON.parse(fs.readFileSync(examplePath, 'utf8'));
 
 function clone(value) {
@@ -520,6 +522,240 @@ test('same-side ports clear the marker glyph and the markers carry the stronger 
   const [first, second] = arrivals.map((point) => point[1]).sort((a, b) => a - b);
   assert.ok(second - first >= 20, `ports clear the 14-unit glyph, got ${second - first}px apart`);
   assert.match(html, /<marker id="er-many-start"[^>]*style="stroke: var\(--text-muted\)"/, 'the crow\u2019s foot is drawn in the stronger ink');
+});
+
+// The mask the renderer draws, the rect the layout checks measure, and the
+// obstacle the legend measures are one rectangle. When the checks measured a
+// narrower box than the ink, a label could sit on a table edge with nothing
+// reported: this corridor is 60 units wide and the label's drawn mask is 65.8,
+// an overlap the old 8-unit measurement (58.0) did not see.
+test('relationship labels are drawn and checked with one measured box', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Label corridor', locale: 'en' },
+    layout: { mode: 'grid', gapX: 60, gapY: 44 },
+    entities: [
+      { id: 'left', label: 'left', row: 0, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'right', label: 'right', row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }, { name: 'left_id', type: 'bigint', key: 'fk', references: 'left.id' }] },
+    ],
+    relationships: [
+      { id: 'right_left', from: 'right', to: 'left', fromCardinality: 'many', toCardinality: 'one', label: 'settles by' },
+    ],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-label-box-'));
+  const { status, stdout, stderr } = render(diagram, directory);
+  assert.notEqual(status, 0, 'a label that sits on a table edge is not a pass');
+  const message = stdout + stderr;
+  assert.match(message, /Label "settles by" overlaps entity "(left|right)"/);
+
+  // The same corridor with room for the drawn mask is accepted, and the mask the
+  // renderer writes is the measured box.
+  const roomy = clone(diagram);
+  roomy.layout.gapX = 88;
+  const accepted = render(roomy, directory);
+  assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+  const html = fs.readFileSync(accepted.output, 'utf8');
+  // Anchor on the label element itself: a span that starts at a table row would
+  // let the first key glyph's font-size answer for the label.
+  const label = html.match(/<g data-detail="context"[^>]*data-edge-id="right_left"[^>]*>[\s\S]*?<\/g>/);
+  assert.ok(label, 'the label is drawn');
+  const mask = label[0].match(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="([\d.]+)" rx="3" class="c-mask"/);
+  const text = label[0].match(/<text(?=[^>]*text-anchor="middle")(?=[^>]*font-size="([\d.]+)")[^>]*>settles by<\/text>/);
+  assert.ok(text, 'the label text carries the label wording');
+  assert.equal(Number(text[1]), 9, 'relationship labels are set at the declared size');
+  // 10 text units at 9 units of type with the label's own advance, plus padding.
+  assert.equal(Number(mask[3]), Math.max(30, 10 * 9 * 0.62 + 10), 'the drawn mask is the measured box');
+});
+
+// The marker spread is a cap, not a floor: a short table with a busy side
+// spaces its ports below the height of the glyph they carry, and the drawn feet
+// and bars overlap. The routes stay legal, so nothing else reports it; the
+// renderer names the table, the side, and the arithmetic.
+test('a side that cannot space its cardinality glyphs is a layout diagnostic', () => {
+  const hub = {
+    id: 'hub', label: 'hub', row: 2, col: 1,
+    attributes: [{ name: 'id', type: 'bigint', key: 'pk' }, { name: 'name', type: 'text' }],
+  };
+  const spokes = [];
+  const relationships = [];
+  for (let index = 0; index < 5; index += 1) {
+    const id = `spoke_${index}`;
+    spokes.push({
+      id, label: id, row: index, col: 2,
+      attributes: [{ name: 'id', type: 'bigint', key: 'pk' }, { name: 'hub_id', type: 'bigint', key: 'fk', references: 'hub.id' }],
+    });
+    relationships.push({ id: `r${index}`, from: id, to: 'hub', fromCardinality: 'many', toCardinality: 'one' });
+  }
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Crowded side', locale: 'en' },
+    layout: { mode: 'grid' },
+    entities: [hub, ...spokes],
+    relationships,
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-side-capacity-'));
+  const { status, stdout, stderr } = render(diagram, directory);
+  assert.notEqual(status, 0, 'overlapping glyphs are not a pass');
+  const message = stdout + stderr;
+  assert.match(message, /layout\/marker-capacity/);
+  assert.match(message, /"hub" shares its right side with 5 relationship ends/);
+  assert.match(message, /under the 14px a cardinality glyph is tall/);
+  assert.match(message, /add fields to "hub"/);
+});
+
+// The reader's review asked for the default legend to stay in the generated
+// content: an automatic canvas is sized to hold it, so a reserved strip that is
+// a few units short must grow the drawing area instead of dropping the key. A
+// narrow schema wraps the entries into several rows, which is the case where
+// that strip is under the most pressure.
+test('an automatic canvas is sized so the default legend is always in the content', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Narrow schema', locale: 'en' },
+    layout: { mode: 'grid', gapX: 56, gapY: 44 },
+    entities: [
+      { id: 'a', label: 'a', row: 0, col: 0, attributes: [
+        { name: 'id', type: 'bigint', key: 'pk' },
+        { name: 'b_id', type: 'bigint', key: 'fk', references: 'b.id' },
+        { name: 'sku', type: 'text', key: 'uk' },
+      ] },
+      { id: 'b', label: 'b', row: 1, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    ],
+    relationships: [{ id: 'a_b', from: 'a', to: 'b', fromCardinality: 'many', toCardinality: 'one', fromOptional: true }],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-legend-'));
+  const { status, stdout, stderr, output } = render(diagram, directory);
+  assert.equal(status, 0, stdout + stderr);
+  const html = fs.readFileSync(output, 'utf8');
+
+  const root = html.match(/<svg\b[^>]*>/)[0];
+  assert.match(root, /data-reader-fit="intrinsic-height"/, 'an automatic canvas declares its fit contract');
+  const viewBoxHeight = Number(root.match(/viewBox="0 0 [\d.]+ ([\d.]+)"/)[1]);
+  assert.ok(Number.isFinite(viewBoxHeight) && viewBoxHeight > 0, 'the canvas has a measured height');
+
+  const kinds = [...html.matchAll(/data-legend-semantic-kind="([a-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(kinds.sort(), ['fk', 'many', 'one', 'optional', 'pk', 'uk'], 'every declared kind keeps its entry');
+  const boxes = [...html.matchAll(/<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="([\d.]+)" rx="5" class="c-database"/g)];
+  assert.ok(boxes.length >= 2, 'both tables are drawn');
+  const contentBottom = Math.max(...boxes.map((match) => Number(match[1]) + Number(match[2])));
+  const baselines = [...html.matchAll(/data-legend-baseline="([\d.]+)"/g)].map((match) => Number(match[1]));
+  assert.equal(baselines.length, 6, 'every declared kind keeps its entry in the band');
+  assert.ok(Math.min(...baselines) > contentBottom, 'the legend band sits below the tables it describes');
+  assert.ok(viewBoxHeight >= contentBottom + MARKER_FREE_BAND, 'the drawing area reserves the band below the content');
+});
+
+// An authored meta.viewBox is a fixed drawing area. There the same measurement
+// is a capacity diagnostic that names what does not fit, rather than a silently
+// dropped key.
+test('an authored viewBox that cannot hold the legend fails with a capacity diagnostic', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Fixed area', locale: 'en', viewBox: [560, 240] },
+    layout: { mode: 'grid' },
+    entities: [
+      // Tall enough that the fixed area cannot also hold the band below it.
+      { id: 'a', label: 'a', row: 0, col: 0, attributes: [
+        { name: 'id', type: 'bigint', key: 'pk' },
+        { name: 'b_id', type: 'bigint', key: 'fk', references: 'b.id' },
+        { name: 'sku', type: 'text', key: 'uk' },
+        { name: 'status', type: 'varchar(16)' },
+        { name: 'quantity', type: 'int' },
+        { name: 'unit_amount', type: 'numeric(12,2)' },
+        { name: 'created_at', type: 'timestamptz' },
+        { name: 'updated_at', type: 'timestamptz' },
+      ] },
+      { id: 'b', label: 'b', row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+    ],
+    relationships: [{ id: 'a_b', from: 'a', to: 'b', fromCardinality: 'many', toCardinality: 'one' }],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-legend-fixed-'));
+  const { status, stdout, stderr } = render(diagram, directory);
+  assert.notEqual(status, 0, 'a fixed area that cannot hold the legend is not a pass');
+  const message = stdout + stderr;
+  assert.match(message, /legend\/(vertical-overflow|label-too-wide|content-overlap)/);
+  assert.match(message, /Supported fixes|supportedFixes|shorten legend labels|wider viewBox/);
+});
+
+// An automatic ERD canvas is taller than one screen for a real schema, and the
+// reader's own review said that is fine. Declaring the height as intrinsic is
+// what lets the Viewer scroll instead of shrinking the tables.
+test('an automatic canvas declares its height as intrinsic for the reader', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-reader-fit-'));
+  const automatic = render(cloneWithoutViews(example), directory);
+  assert.equal(automatic.status, 0, automatic.stdout + automatic.stderr);
+  const automaticHtml = fs.readFileSync(automatic.output, 'utf8');
+  assert.match(automaticHtml, /<svg[^>]*data-reader-fit="intrinsic-height"/);
+  assert.match(automaticHtml, /data-reader-min-text="7\.5"/);
+  for (const row of automaticHtml.matchAll(/<g data-detail="context" data-er-row="\d+">([\s\S]*?)<\/g>/g)) {
+    const texts = [...row[1].matchAll(/<text ([^>]*)>/g)].map((match) => match[1]);
+    assert.ok(texts.length >= 2, 'a field row draws its name and its type');
+    for (const attributes of texts) {
+      assert.match(attributes, /data-detail="context"/, 'every row text declares the level the reader measures');
+    }
+  }
+
+  const authored = cloneWithoutViews(example);
+  authored.meta.viewBox = [960, 620];
+  const fixed = render(authored, directory);
+  assert.equal(fixed.status, 0, fixed.stdout + fixed.stderr);
+  const fixedRoot = fs.readFileSync(fixed.output, 'utf8').match(/<svg\b[^>]*>/)[0];
+  assert.doesNotMatch(fixedRoot, /data-reader-fit/, 'an authored viewBox keeps the authored fit contract');
+});
+
+// Crow's foot notation is only notation if the foot reads as a foot. Drawn with
+// its toes away from the table it looks like an arrowhead pointing at the table
+// it describes; the reader's review asked for the foot to open toward the
+// entity. Both ends are mirrored copies of one glyph, so both are asserted, and
+// the optional circle must stay past the apex rather than inside the toes.
+test('the crow\u2019s foot opens toward the entity at both ends', () => {
+  const diagram = {
+    schema_version: 1,
+    diagram_type: 'erd',
+    meta: { title: 'Foot direction', locale: 'en' },
+    layout: { mode: 'grid' },
+    entities: [
+      { id: 'parent', label: 'parent', row: 0, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'child', label: 'child', row: 0, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }, { name: 'parent_id', type: 'bigint', key: 'fk', references: 'parent.id' }] },
+      { id: 'ticket', label: 'ticket', row: 1, col: 0, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }] },
+      { id: 'note', label: 'note', row: 1, col: 1, attributes: [{ name: 'id', type: 'bigint', key: 'pk' }, { name: 'ticket_id', type: 'bigint', key: 'fk', references: 'ticket.id' }] },
+    ],
+    relationships: [
+      // One of each direction, so the mirrored and non-mirrored copies of the
+      // glyph are both drawn and both asserted.
+      { id: 'child_parent', from: 'child', to: 'parent', fromCardinality: 'many', toCardinality: 'one' },
+      { id: 'ticket_note', from: 'ticket', to: 'note', fromCardinality: 'one', toCardinality: 'many', toOptional: true },
+    ],
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archify-er-foot-'));
+  const { status, stdout, stderr, output } = render(diagram, directory);
+  assert.equal(status, 0, stdout + stderr);
+  const html = fs.readFileSync(output, 'utf8');
+
+  for (const [id, endpoint] of [['er-many-start', 'source'], ['er-many-optional-end', 'target']]) {
+    const marker = html.match(new RegExp(`<marker id="${id}"[\\s\\S]*?</marker>`))[0];
+    const refX = Number(attrs(marker)['refX']);
+    const toes = [...marker.matchAll(/M ([\d.]+) 8 L ([\d.]+) (\d+)/g)].map((match) => ({ apex: Number(match[1]), toe: Number(match[2]), y: Number(match[3]) }));
+    assert.equal(toes.length, 3, `${id} draws three toes`);
+    for (const toe of toes) {
+      assert.equal(toe.toe, refX, `${id}: every toe meets the entity at the marker reference point (${endpoint} end)`);
+      assert.ok(toe.apex !== refX, `${id}: the apex sits back from the entity`);
+      assert.equal(Math.abs(toe.apex - toe.toe), 14, `${id}: the foot is one glyph deep`);
+    }
+    assert.deepEqual(toes.map((toe) => toe.y).sort((a, b) => a - b), [1, 8, 15], `${id}: the toes spread across the glyph`);
+  }
+
+  const optional = html.match(/<marker id="er-many-optional-end"[\s\S]*?<\/marker>/)[0];
+  const optionalRefX = Number(attrs(optional)['refX']);
+  const ring = optional.match(/<circle cx="([\d.]+)"/);
+  assert.equal(optionalRefX, 22, 'the non-mirrored glyph references the entity end');
+  assert.ok(
+    Math.abs(Number(ring[1]) - optionalRefX) > 14,
+    'the optional circle sits past the apex, not inside the toes',
+  );
 });
 
 // The bus runs close to the shared side, inside the band a cardinality glyph
